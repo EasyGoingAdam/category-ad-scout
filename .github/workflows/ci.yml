@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Vitest
+        run: npm test
+      - name: Type-check & build
+        run: npm run build
+        env:
+          # Build doesn't need real keys — just compile-time validation.
+          DATABASE_URL: postgres://example:example@localhost:5432/example
