@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: #0b0d10;
+  color: #e6e9ee;
+  font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", Inter, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.card {
+  background: #13161b;
+  border: 1px solid #1f242c;
+  border-radius: 10px;
+}
+
+.btn {
+  background: #ff7a45;
+  color: #0b0d10;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+}
+.btn-ghost {
+  background: transparent;
+  color: #e6e9ee;
+  border: 1px solid #1f242c;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+.btn-ghost:hover { background: #13161b; }
+
+.input {
+  width: 100%;
+  background: #0b0d10;
+  border: 1px solid #1f242c;
+  color: #e6e9ee;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+}
+.input:focus { border-color: #ff7a45; }
+
+.pill {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #1f242c;
+  color: #aab2bd;
+}
+
+table { border-collapse: collapse; width: 100%; }
+th, td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #1f242c;
+  font-size: 13px;
+}
+th { color: #aab2bd; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }

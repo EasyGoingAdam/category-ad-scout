@@ -1,0 +1,177 @@
+import { searchWeb, type SearchHit } from './search';
+import { fetchPageMetaPool, type PageMeta } from './extract';
+import {
+  brandNameFromTitle,
+  isBlockedDomain,
+  urlToDomain,
+} from './normalize';
+
+export type Candidate = {
+  domain: string;
+  brand_name: string;
+  homepage_title: string | null;
+  meta_description: string | null;
+  product_category: string;
+  amazon_url: string | null;
+  shopify_detected: 0 | 1;
+  socials_json: string;
+  raw_sources_json: string;
+  category_fit: number;
+  source_hits: SearchHit[];
+};
+
+export function buildQueries(category: string): string[] {
+  const c = category.trim();
+  return [
+    `best ${c} brands`,
+    `top ${c} brands`,
+    `${c} Shopify brands`,
+    `${c} DTC brands`,
+    `${c} subscription brand`,
+    `${c} ecommerce brand`,
+    `${c} buy online`,
+    `${c} Amazon`,
+    `best ${c} on Amazon`,
+    `${c} "Amazon's Choice"`,
+    `${c} "Subscribe & Save"`,
+    `${c} "free shipping"`,
+    `${c} "subscribe and save"`,
+    `${c} "Shopify"`,
+  ];
+}
+
+export async function discoverBrands(opts: {
+  category: string;
+  maxQueries?: number;
+  maxCandidates?: number;
+  onProgress?: (msg: string) => void;
+}): Promise<Candidate[]> {
+  const { category } = opts;
+  const maxQueries = opts.maxQueries ?? 10;
+  const maxCandidates = opts.maxCandidates ?? 60;
+  const log = opts.onProgress ?? (() => {});
+
+  // Phase 2a: search
+  const queries = buildQueries(category).slice(0, maxQueries);
+  log(`Running ${queries.length} search queries…`);
+
+  const allHits: SearchHit[] = [];
+  for (const q of queries) {
+    try {
+      const hits = await searchWeb(q, 10);
+      allHits.push(...hits);
+    } catch (e: any) {
+      log(`Search "${q}" failed: ${e?.message ?? e}`);
+    }
+  }
+  log(`Got ${allHits.length} raw search hits.`);
+
+  // Phase 2b: collapse to candidate domains
+  const byDomain = new Map<string, { hits: SearchHit[] }>();
+  for (const h of allHits) {
+    const d = urlToDomain(h.url);
+    if (!d) continue;
+    if (isBlockedDomain(d)) continue;
+    if (!byDomain.has(d)) byDomain.set(d, { hits: [] });
+    byDomain.get(d)!.hits.push(h);
+  }
+
+  // rank by hit count, take top maxCandidates
+  const ranked = Array.from(byDomain.entries())
+    .sort((a, b) => b[1].hits.length - a[1].hits.length)
+    .slice(0, maxCandidates);
+
+  log(`Filtered to ${ranked.length} candidate domains. Fetching homepages…`);
+
+  // Phase 2c: fetch homepage of each candidate to enrich + verify
+  const homepages = ranked.map(([d]) => `https://${d}/`);
+  const metas = await fetchPageMetaPool(homepages, 6);
+
+  // Phase 3: normalize + assemble
+  const out: Candidate[] = [];
+  ranked.forEach(([domain, info], idx) => {
+    const meta = metas[idx];
+    const cand = buildCandidate(category, domain, info.hits, meta);
+    if (cand) out.push(cand);
+  });
+
+  log(`Built ${out.length} brand candidates.`);
+  return out;
+}
+
+function buildCandidate(
+  category: string,
+  domain: string,
+  hits: SearchHit[],
+  meta: PageMeta | null,
+): Candidate | null {
+  // If we couldn't fetch the homepage at all, the candidate is weak — skip
+  // unless we have multiple distinct search hits (still worth keeping).
+  if (!meta && hits.length < 2) return null;
+
+  const title = meta?.title ?? hits[0]?.title ?? null;
+  const description = meta?.description ?? hits[0]?.description ?? null;
+  const brand_name = meta?.ogSiteName?.trim() || brandNameFromTitle(title, domain);
+
+  const amazon_url = meta?.amazonLinks?.[0] ?? null;
+  const shopify_detected: 0 | 1 = meta?.shopify ? 1 : 0;
+
+  const socials_json = JSON.stringify(meta?.socials ?? []);
+  const raw_sources_json = JSON.stringify({
+    search_hits: hits.slice(0, 6).map((h) => ({
+      url: h.url,
+      title: h.title,
+      description: h.description,
+      source: h.source,
+    })),
+    homepage_status: meta ? 'ok' : 'failed',
+    final_url: meta?.finalUrl ?? null,
+    klaviyo: meta?.klaviyo ?? false,
+    product_paths: meta?.productPaths ?? [],
+  });
+
+  const category_fit = scoreCategoryFit({ category, title, description, hits });
+
+  return {
+    domain,
+    brand_name,
+    homepage_title: title,
+    meta_description: description,
+    product_category: category,
+    amazon_url,
+    shopify_detected,
+    socials_json,
+    raw_sources_json,
+    category_fit,
+    source_hits: hits,
+  };
+}
+
+function scoreCategoryFit(opts: {
+  category: string;
+  title: string | null;
+  description: string | null;
+  hits: SearchHit[];
+}): number {
+  const tokens = opts.category
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
+  if (tokens.length === 0) return 50;
+  const text = [
+    opts.title ?? '',
+    opts.description ?? '',
+    ...opts.hits.map((h) => `${h.title} ${h.description ?? ''}`),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  const matched = tokens.filter((t) => text.includes(t)).length;
+  const ratio = matched / tokens.length;
+
+  let score = Math.round(ratio * 80);
+  if (opts.hits.length >= 3) score += 10;
+  if (opts.hits.length >= 5) score += 5;
+  if (opts.title && tokens.some((t) => opts.title!.toLowerCase().includes(t))) score += 5;
+  return Math.max(0, Math.min(100, score));
+}
