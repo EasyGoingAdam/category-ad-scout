@@ -25,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a className="btn-ghost" href="/">Home</a>
               <a className="btn-ghost" href="/scans">Scans</a>
               <a className="btn-ghost" href="/schedules">Schedules</a>
+              <a className="btn-ghost" href="/settings">Settings</a>
             </nav>
           </header>
           {children}

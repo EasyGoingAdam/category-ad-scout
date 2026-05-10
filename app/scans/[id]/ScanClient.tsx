@@ -238,6 +238,17 @@ function FilterBar(props: {
   );
 }
 
+type SortKey =
+  | 'brand_name'
+  | 'category_fit'
+  | 'semrush_organic_traffic'
+  | 'traffic_score'
+  | 'meta_active_ad_count'
+  | 'meta_ads_score'
+  | 'best_email'
+  | 'lead_score'
+  | 'last_checked';
+
 function BrandTable({
   brands,
   expanded,
@@ -253,6 +264,47 @@ function BrandTable({
   patchBrand: (id: number, p: { user_status?: string | null; user_notes?: string | null }) => void;
   statuses: string[];
 }) {
+  const [sortKey, setSortKey] = useState<SortKey>('lead_score');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const sorted = useMemo(() => {
+    const arr = [...brands];
+    arr.sort((a, b) => {
+      const av = (a as any)[sortKey];
+      const bv = (b as any)[sortKey];
+      const an = av == null ? Number.NEGATIVE_INFINITY : Number(av);
+      const bn = bv == null ? Number.NEGATIVE_INFINITY : Number(bv);
+      if (typeof av === 'string' || typeof bv === 'string') {
+        const aa = (av ?? '').toString().toLowerCase();
+        const bb = (bv ?? '').toString().toLowerCase();
+        return sortDir === 'asc' ? aa.localeCompare(bb) : bb.localeCompare(aa);
+      }
+      if (Number.isFinite(an) && Number.isFinite(bn)) {
+        return sortDir === 'asc' ? an - bn : bn - an;
+      }
+      return 0;
+    });
+    return arr;
+  }, [brands, sortKey, sortDir]);
+
+  function H({ k, label }: { k: SortKey; label: string }) {
+    const active = sortKey === k;
+    return (
+      <th
+        onClick={() => {
+          if (active) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+          else {
+            setSortKey(k);
+            setSortDir('desc');
+          }
+        }}
+        className={`cursor-pointer select-none ${active ? 'text-accent' : ''}`}
+      >
+        {label} {active ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+      </th>
+    );
+  }
+
   if (brands.length === 0) {
     return (
       <div className="card p-6 text-muted text-sm">
@@ -266,24 +318,25 @@ function BrandTable({
         <thead>
           <tr>
             <th></th>
-            <th>Brand</th>
+            <H k="brand_name" label="Brand" />
             <th>Website</th>
-            <th>Fit</th>
-            <th>Traffic / mo</th>
-            <th>T-Score</th>
-            <th>Live ads</th>
-            <th>M-Score</th>
+            <H k="category_fit" label="Fit" />
+            <H k="semrush_organic_traffic" label="Traffic / mo" />
+            <H k="traffic_score" label="T-Score" />
+            <H k="meta_active_ad_count" label="Live ads" />
+            <H k="meta_ads_score" label="M-Score" />
             <th>Amazon</th>
             <th>Shopify</th>
-            <th>Best email</th>
+            <H k="best_email" label="Best email" />
             <th>Conf</th>
-            <th>Lead</th>
+            <H k="lead_score" label="Lead" />
             <th>Status</th>
+            <H k="last_checked" label="Checked" />
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {brands.map((b) => {
+          {sorted.map((b) => {
             const isOpen = expanded === b.id;
             const effectiveStatus = b.user_status ?? b.status;
             return (
@@ -333,8 +386,25 @@ function BrandTable({
                     )}
                   </td>
                   <td>{b.shopify_detected ? 'yes' : '—'}</td>
-                  <td className="max-w-[180px] truncate" title={b.best_email ?? undefined}>
-                    {b.best_email ?? '—'}
+                  <td className="max-w-[180px]">
+                    {b.best_email ? (
+                      <span className="flex items-center gap-1">
+                        <span className="truncate" title={b.best_email}>
+                          {b.best_email}
+                        </span>
+                        <button
+                          className="btn-ghost text-xs px-1 py-0"
+                          title="Copy email"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(b.best_email!);
+                          }}
+                        >
+                          ⎘
+                        </button>
+                      </span>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td>{b.email_confidence != null ? b.email_confidence : '—'}</td>
                   <td>{b.lead_score != null ? <strong>{b.lead_score}</strong> : '—'}</td>
@@ -342,6 +412,9 @@ function BrandTable({
                     <span className={`pill ${b.user_status ? 'border-accent text-accent' : ''}`}>
                       {effectiveStatus}
                     </span>
+                  </td>
+                  <td className="text-muted text-xs">
+                    {b.last_checked ? formatTimeAgo(b.last_checked) : '—'}
                   </td>
                   <td>
                     <button
@@ -355,7 +428,7 @@ function BrandTable({
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={15} className="bg-panel/30">
+                    <td colSpan={16} className="bg-panel/30">
                       <BrandDetail
                         b={b}
                         statuses={statuses}
@@ -523,6 +596,20 @@ function BrandDetail({
 function cell(v: number | null | undefined) {
   if (v == null) return '—';
   return v;
+}
+
+function formatTimeAgo(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const seconds = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d`;
+  return new Date(t).toISOString().slice(0, 10);
 }
 
 function parseJson<T>(s: string | null | undefined): T | null {
