@@ -42,6 +42,9 @@ export type BrandRecord = {
   amazon_dtc_score?: number | null;
   lead_score?: number | null;
   last_checked?: string | null;
+  user_status?: string | null;
+  user_notes?: string | null;
+  user_updated_at?: string | null;
   created_at?: string;
 };
 

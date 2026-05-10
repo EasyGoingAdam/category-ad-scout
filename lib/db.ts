@@ -83,6 +83,11 @@ CREATE TABLE IF NOT EXISTS schedules (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Operator workflow columns (added in v0.2). Idempotent.
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_status TEXT;
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_notes TEXT;
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_updated_at TIMESTAMPTZ;
 `;
 
 export async function migrate() {

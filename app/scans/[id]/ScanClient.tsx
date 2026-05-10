@@ -1,7 +1,22 @@
 'use client';
 
-import { useState } from 'react';
-import type { BrandRecord } from '@/lib/types';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import type { BrandRecord, BrandStatus } from '@/lib/types';
+
+const USER_STATUSES: Array<BrandStatus | 'Contacted' | 'Replied' | 'Closed' | ''> = [
+  '',
+  'New',
+  'Qualified',
+  'Has Live Ads',
+  'No Ads Found',
+  'Needs Review',
+  'Bad Fit',
+  'Contact Found',
+  'Contact Missing',
+  'Contacted',
+  'Replied',
+  'Closed',
+];
 
 export default function ScanClient({
   scan,
@@ -10,23 +25,40 @@ export default function ScanClient({
   scan: { id: number; category: string; status: string; notes: string | null };
   initialBrands: BrandRecord[];
 }) {
-  const [brands, setBrands] = useState(initialBrands);
+  const [brands, setBrands] = useState<BrandRecord[]>(initialBrands);
   const [running, setRunning] = useState<null | 'discover' | 'enrich'>(null);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterText, setFilterText] = useState('');
+  const [hasAdsOnly, setHasAdsOnly] = useState(false);
+  const [hasEmailOnly, setHasEmailOnly] = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
 
-  async function discover() {
+  // Auto-trigger discovery if the scan was just created and is empty.
+  useEffect(() => {
+    if (scan.status === 'running' && initialBrands.length === 0) {
+      void discover(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function refreshBrands() {
+    const r = await fetch(`/api/scan/${scan.id}/brands`);
+    const d = await r.json();
+    setBrands(d.brands ?? []);
+  }
+
+  async function discover(silent = false) {
     setRunning('discover');
     setError(null);
-    setLog((l) => [...l, 'Starting brand discovery…']);
+    if (!silent) setLog((l) => [...l, 'Starting brand discovery…']);
     try {
       const r = await fetch(`/api/scan/${scan.id}/discover`, { method: 'POST' });
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
       setLog((l) => [...l, ...(data.log ?? []), `Inserted: ${data.brands_inserted?.c ?? '?'} brands`]);
-      // refresh
-      const list = await fetch(`/api/scan/${scan.id}/brands`).then((r) => r.json());
-      setBrands(list.brands ?? []);
+      await refreshBrands();
     } catch (e: any) {
       setError(e.message ?? 'Discovery failed');
     } finally {
@@ -43,8 +75,7 @@ export default function ScanClient({
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
       setLog((l) => [...l, ...(data.log ?? []), `Enriched ${data.enriched ?? 0} brands.`]);
-      const list = await fetch(`/api/scan/${scan.id}/brands`).then((r) => r.json());
-      setBrands(list.brands ?? []);
+      await refreshBrands();
     } catch (e: any) {
       setError(e.message ?? 'Enrichment failed');
     } finally {
@@ -52,17 +83,58 @@ export default function ScanClient({
     }
   }
 
+  async function reenrichOne(id: number) {
+    try {
+      const r = await fetch(`/api/brand/${id}/reenrich`, { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
+      setBrands((bs) => bs.map((b) => (b.id === id ? data.brand : b)));
+      setLog((l) => [...l, `Re-enriched #${id}: ${data.log?.join(' · ')}`]);
+    } catch (e: any) {
+      alert(e?.message ?? 'failed');
+    }
+  }
+
+  async function patchBrand(id: number, patch: { user_status?: string | null; user_notes?: string | null }) {
+    const r = await fetch(`/api/brand/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await r.json();
+    if (r.ok) setBrands((bs) => bs.map((b) => (b.id === id ? data.brand : b)));
+    else alert(data?.error ?? `HTTP ${r.status}`);
+  }
+
+  const filtered = useMemo(() => {
+    const q = filterText.trim().toLowerCase();
+    return brands.filter((b) => {
+      if (hasAdsOnly && !((b.meta_active_ad_count ?? 0) > 0)) return false;
+      if (hasEmailOnly && !b.best_email) return false;
+      if (filterStatus && (b.user_status ?? b.status) !== filterStatus) return false;
+      if (q) {
+        const hay = `${b.brand_name} ${b.domain} ${b.best_email ?? ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [brands, filterStatus, filterText, hasAdsOnly, hasEmailOnly]);
+
   return (
     <div className="space-y-4">
       <div className="card p-5 flex items-center gap-3 flex-wrap">
-        <button className="btn" disabled={!!running} onClick={discover}>
-          {running === 'discover' ? 'Discovering…' : brands.length > 0 ? 'Re-run discovery' : 'Discover brands'}
+        <button className="btn" disabled={!!running} onClick={() => discover()}>
+          {running === 'discover'
+            ? 'Discovering…'
+            : brands.length > 0
+              ? 'Re-run discovery'
+              : 'Discover brands'}
         </button>
         <button
           className="btn-ghost"
           disabled={!!running || brands.length === 0}
           onClick={enrichAll}
-          title="Run SEMrush + Meta Ad Library + Hunter enrichment"
+          title="Run SEMrush + Meta Ad Library + Hunter for every brand"
         >
           {running === 'enrich' ? 'Enriching…' : 'Enrich all'}
         </button>
@@ -77,6 +149,20 @@ export default function ScanClient({
         {error && <div className="text-sm text-red-400 ml-auto">{error}</div>}
       </div>
 
+      <FilterBar
+        statuses={USER_STATUSES}
+        filterStatus={filterStatus}
+        setFilterStatus={setFilterStatus}
+        filterText={filterText}
+        setFilterText={setFilterText}
+        hasAdsOnly={hasAdsOnly}
+        setHasAdsOnly={setHasAdsOnly}
+        hasEmailOnly={hasEmailOnly}
+        setHasEmailOnly={setHasEmailOnly}
+        total={brands.length}
+        shown={filtered.length}
+      />
+
       {log.length > 0 && (
         <details className="card p-4">
           <summary className="text-sm text-muted cursor-pointer">Run log ({log.length})</summary>
@@ -84,16 +170,93 @@ export default function ScanClient({
         </details>
       )}
 
-      <BrandTable brands={brands} />
+      <BrandTable
+        brands={filtered}
+        expanded={expanded}
+        setExpanded={setExpanded}
+        reenrichOne={reenrichOne}
+        patchBrand={patchBrand}
+        statuses={USER_STATUSES}
+      />
     </div>
   );
 }
 
-function BrandTable({ brands }: { brands: BrandRecord[] }) {
+function FilterBar(props: {
+  statuses: string[];
+  filterStatus: string;
+  setFilterStatus: (s: string) => void;
+  filterText: string;
+  setFilterText: (s: string) => void;
+  hasAdsOnly: boolean;
+  setHasAdsOnly: (v: boolean) => void;
+  hasEmailOnly: boolean;
+  setHasEmailOnly: (v: boolean) => void;
+  total: number;
+  shown: number;
+}) {
+  return (
+    <div className="card p-4 flex items-center gap-3 flex-wrap text-sm">
+      <input
+        className="input"
+        style={{ width: 220 }}
+        placeholder="Search brand / domain / email"
+        value={props.filterText}
+        onChange={(e) => props.setFilterText(e.target.value)}
+      />
+      <select
+        className="input"
+        style={{ width: 200 }}
+        value={props.filterStatus}
+        onChange={(e) => props.setFilterStatus(e.target.value)}
+      >
+        <option value="">All statuses</option>
+        {props.statuses.filter(Boolean).map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </select>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={props.hasAdsOnly}
+          onChange={(e) => props.setHasAdsOnly(e.target.checked)}
+        />
+        Has live ads
+      </label>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={props.hasEmailOnly}
+          onChange={(e) => props.setHasEmailOnly(e.target.checked)}
+        />
+        Has email
+      </label>
+      <span className="ml-auto text-muted">
+        {props.shown} / {props.total}
+      </span>
+    </div>
+  );
+}
+
+function BrandTable({
+  brands,
+  expanded,
+  setExpanded,
+  reenrichOne,
+  patchBrand,
+  statuses,
+}: {
+  brands: BrandRecord[];
+  expanded: number | null;
+  setExpanded: (id: number | null) => void;
+  reenrichOne: (id: number) => void;
+  patchBrand: (id: number, p: { user_status?: string | null; user_notes?: string | null }) => void;
+  statuses: string[];
+}) {
   if (brands.length === 0) {
     return (
       <div className="card p-6 text-muted text-sm">
-        No brands yet. Click <em>Discover brands</em> to populate this scan.
+        No brands match this filter.
       </div>
     );
   }
@@ -102,6 +265,7 @@ function BrandTable({ brands }: { brands: BrandRecord[] }) {
       <table>
         <thead>
           <tr>
+            <th></th>
             <th>Brand</th>
             <th>Website</th>
             <th>Fit</th>
@@ -115,30 +279,243 @@ function BrandTable({ brands }: { brands: BrandRecord[] }) {
             <th>Conf</th>
             <th>Lead</th>
             <th>Status</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          {brands.map((b) => (
-            <tr key={b.id}>
-              <td className="font-medium">{b.brand_name}</td>
-              <td><a className="text-accent hover:underline" href={`https://${b.domain}`} target="_blank" rel="noreferrer">{b.domain}</a></td>
-              <td>{cell(b.category_fit)}</td>
-              <td>{b.semrush_organic_traffic != null ? Math.round(b.semrush_organic_traffic).toLocaleString() : '—'}</td>
-              <td>{cell(b.traffic_score)}</td>
-              <td>{b.meta_active_ad_count != null ? b.meta_active_ad_count : '—'}</td>
-              <td>{cell(b.meta_ads_score)}</td>
-              <td>{b.amazon_url ? <a className="text-accent" href={b.amazon_url} target="_blank" rel="noreferrer">yes</a> : '—'}</td>
-              <td>{b.shopify_detected ? 'yes' : '—'}</td>
-              <td className="max-w-[180px] truncate" title={b.best_email ?? undefined}>
-                {b.best_email ?? '—'}
-              </td>
-              <td>{b.email_confidence != null ? b.email_confidence : '—'}</td>
-              <td>{b.lead_score != null ? <strong>{b.lead_score}</strong> : '—'}</td>
-              <td><span className="pill">{b.status}</span></td>
-            </tr>
-          ))}
+          {brands.map((b) => {
+            const isOpen = expanded === b.id;
+            const effectiveStatus = b.user_status ?? b.status;
+            return (
+              <Fragment key={b.id}>
+                <tr className={isOpen ? 'bg-panel/40' : undefined}>
+                  <td>
+                    <button
+                      className="btn-ghost text-xs"
+                      onClick={() => setExpanded(isOpen ? null : (b.id ?? null))}
+                      aria-label={isOpen ? 'collapse' : 'expand'}
+                    >
+                      {isOpen ? '−' : '+'}
+                    </button>
+                  </td>
+                  <td className="font-medium">{b.brand_name}</td>
+                  <td>
+                    <a
+                      className="text-accent hover:underline"
+                      href={`https://${b.domain}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {b.domain}
+                    </a>
+                  </td>
+                  <td>{cell(b.category_fit)}</td>
+                  <td>
+                    {b.semrush_organic_traffic != null
+                      ? Math.round(Number(b.semrush_organic_traffic)).toLocaleString()
+                      : '—'}
+                  </td>
+                  <td>{cell(b.traffic_score)}</td>
+                  <td>{b.meta_active_ad_count != null ? b.meta_active_ad_count : '—'}</td>
+                  <td>{cell(b.meta_ads_score)}</td>
+                  <td>
+                    {b.amazon_url ? (
+                      <a
+                        className="text-accent"
+                        href={b.amazon_url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        yes
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>{b.shopify_detected ? 'yes' : '—'}</td>
+                  <td className="max-w-[180px] truncate" title={b.best_email ?? undefined}>
+                    {b.best_email ?? '—'}
+                  </td>
+                  <td>{b.email_confidence != null ? b.email_confidence : '—'}</td>
+                  <td>{b.lead_score != null ? <strong>{b.lead_score}</strong> : '—'}</td>
+                  <td>
+                    <span className={`pill ${b.user_status ? 'border-accent text-accent' : ''}`}>
+                      {effectiveStatus}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      className="btn-ghost text-xs"
+                      onClick={() => reenrichOne(b.id!)}
+                      title="Re-run SEMrush + Meta + Hunter for this brand"
+                    >
+                      ↻
+                    </button>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={15} className="bg-panel/30">
+                      <BrandDetail
+                        b={b}
+                        statuses={statuses}
+                        patchBrand={(p) => patchBrand(b.id!, p)}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function BrandDetail({
+  b,
+  statuses,
+  patchBrand,
+}: {
+  b: BrandRecord;
+  statuses: string[];
+  patchBrand: (p: { user_status?: string | null; user_notes?: string | null }) => void;
+}) {
+  const socials = parseJson<Array<{ platform: string; url: string }>>(b.socials_json) ?? [];
+  const raw = parseJson<{
+    search_hits?: Array<{ url: string; title: string; description?: string }>;
+    homepage_status?: string;
+    final_url?: string | null;
+    klaviyo?: boolean;
+    product_paths?: string[];
+  }>(b.raw_sources_json);
+  const hunterEmails = parseJson<
+    Array<{
+      value: string;
+      type?: string;
+      confidence?: number;
+      first_name?: string | null;
+      last_name?: string | null;
+      position?: string | null;
+    }>
+  >(b.hunter_emails_json);
+  const creativeTypes = parseJson<string[]>(b.meta_creative_types) ?? [];
+  const topHooks = parseJson<string[]>(b.meta_top_hooks) ?? [];
+
+  const [notes, setNotes] = useState<string>(b.user_notes ?? '');
+
+  return (
+    <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
+      <section>
+        <h4 className="font-semibold mb-2">Operator</h4>
+        <label className="text-xs text-muted block mb-1">Status override</label>
+        <select
+          className="input mb-3"
+          value={b.user_status ?? ''}
+          onChange={(e) => patchBrand({ user_status: e.target.value || null })}
+        >
+          <option value="">— follow auto status ({b.status}) —</option>
+          {statuses.filter(Boolean).map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label className="text-xs text-muted block mb-1">Notes</label>
+        <textarea
+          className="input"
+          rows={4}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() =>
+            (notes ?? '') !== (b.user_notes ?? '') && patchBrand({ user_notes: notes || null })
+          }
+          placeholder="who I emailed, replies, anything to remember"
+        />
+        {b.user_updated_at && (
+          <div className="text-xs text-muted mt-1">
+            edited {String(b.user_updated_at)}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h4 className="font-semibold mb-2">Meta Ad Library</h4>
+        {b.meta_ads_found == null ? (
+          <p className="text-muted">No Meta data — set META_COWORK_URL or click ↻.</p>
+        ) : (
+          <ul className="space-y-1">
+            <li>Active ads: <strong>{b.meta_active_ad_count ?? 0}</strong></li>
+            <li>Confidence: {b.meta_confidence ?? '—'}</li>
+            {b.meta_main_offer && <li>Offer: <em>{b.meta_main_offer}</em></li>}
+            {creativeTypes.length > 0 && (
+              <li>Creative types: {creativeTypes.join(', ')}</li>
+            )}
+            {topHooks.length > 0 && <li>Top hooks: {topHooks.join('; ')}</li>}
+            {b.meta_ad_library_url && (
+              <li>
+                <a className="text-accent" href={b.meta_ad_library_url} target="_blank" rel="noreferrer">
+                  Open Ad Library →
+                </a>
+              </li>
+            )}
+          </ul>
+        )}
+
+        <h4 className="font-semibold mt-4 mb-2">Socials</h4>
+        {socials.length === 0 ? (
+          <p className="text-muted">none detected</p>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {socials.map((s) => (
+              <li key={s.url}>
+                <a className="pill text-accent" href={s.url} target="_blank" rel="noreferrer">
+                  {s.platform}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <h4 className="font-semibold mb-2">Hunter emails</h4>
+        {!hunterEmails || hunterEmails.length === 0 ? (
+          <p className="text-muted">no emails returned</p>
+        ) : (
+          <ul className="space-y-1 text-xs max-h-48 overflow-y-auto">
+            {hunterEmails.map((e) => (
+              <li key={e.value} className="flex items-baseline gap-2">
+                <span className="pill">{e.confidence ?? '?'}</span>
+                <span className="font-mono">{e.value}</span>
+                <span className="text-muted">
+                  {[e.first_name, e.last_name].filter(Boolean).join(' ')}{' '}
+                  {e.position ? `· ${e.position}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h4 className="font-semibold mt-4 mb-2">Discovery sources</h4>
+        {raw?.search_hits?.length ? (
+          <ul className="space-y-1 text-xs max-h-48 overflow-y-auto">
+            {raw.search_hits.slice(0, 6).map((h, i) => (
+              <li key={i}>
+                <a className="text-accent" href={h.url} target="_blank" rel="noreferrer">
+                  {h.title || h.url}
+                </a>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-muted">no search hits stored</p>
+        )}
+        {raw?.product_paths?.length ? (
+          <p className="text-xs text-muted mt-2">{raw.product_paths.length} product/collection paths detected</p>
+        ) : null}
+      </section>
     </div>
   );
 }
@@ -146,4 +523,13 @@ function BrandTable({ brands }: { brands: BrandRecord[] }) {
 function cell(v: number | null | undefined) {
   if (v == null) return '—';
   return v;
+}
+
+function parseJson<T>(s: string | null | undefined): T | null {
+  if (!s) return null;
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    return null;
+  }
 }
