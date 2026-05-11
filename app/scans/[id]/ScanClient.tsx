@@ -26,7 +26,7 @@ export default function ScanClient({
   initialBrands: BrandRecord[];
 }) {
   const [brands, setBrands] = useState<BrandRecord[]>(initialBrands);
-  const [running, setRunning] = useState<null | 'discover' | 'enrich'>(null);
+  const [running, setRunning] = useState<null | 'discover' | 'enrich' | 'bulk'>(null);
   const [log, setLog] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('');
@@ -34,6 +34,7 @@ export default function ScanClient({
   const [hasAdsOnly, setHasAdsOnly] = useState(false);
   const [hasEmailOnly, setHasEmailOnly] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   // Auto-trigger discovery if the scan was just created and is empty.
   useEffect(() => {
@@ -106,6 +107,66 @@ export default function ScanClient({
     else alert(data?.error ?? `HTTP ${r.status}`);
   }
 
+  async function bulkReenrich() {
+    if (selected.size === 0) return;
+    setRunning('bulk');
+    setError(null);
+    setLog((l) => [...l, `Bulk re-enrich for ${selected.size} brand(s)…`]);
+    try {
+      const r = await fetch(`/api/scan/${scan.id}/bulk-reenrich`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_ids: Array.from(selected) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
+      setLog((l) => [...l, ...(data.log ?? []), `Re-enriched ${data.enriched}/${data.total}.`]);
+      await refreshBrands();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function bulkSetStatus(status: string | null) {
+    if (selected.size === 0) return;
+    setRunning('bulk');
+    setError(null);
+    try {
+      const r = await fetch(`/api/scan/${scan.id}/bulk-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand_ids: Array.from(selected),
+          user_status: status,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
+      setLog((l) => [...l, `Set ${data.updated} brand(s) to ${status ?? 'auto'}`]);
+      await refreshBrands();
+      setSelected(new Set());
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  function toggleSelected(id: number) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAllFiltered(ids: number[]) {
+    setSelected(new Set(ids));
+  }
+
   const filtered = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     return brands.filter((b) => {
@@ -170,6 +231,17 @@ export default function ScanClient({
         </details>
       )}
 
+      {selected.size > 0 && (
+        <BulkBar
+          count={selected.size}
+          statuses={USER_STATUSES}
+          busy={running === 'bulk'}
+          onReenrich={bulkReenrich}
+          onSetStatus={bulkSetStatus}
+          onClear={() => setSelected(new Set())}
+        />
+      )}
+
       <BrandTable
         brands={filtered}
         expanded={expanded}
@@ -177,6 +249,11 @@ export default function ScanClient({
         reenrichOne={reenrichOne}
         patchBrand={patchBrand}
         statuses={USER_STATUSES}
+        selected={selected}
+        toggleSelected={toggleSelected}
+        selectAllFiltered={() =>
+          selectAllFiltered(filtered.map((b) => b.id!).filter((n) => Number.isFinite(n)))
+        }
       />
     </div>
   );
@@ -238,6 +315,52 @@ function FilterBar(props: {
   );
 }
 
+function BulkBar({
+  count,
+  statuses,
+  busy,
+  onReenrich,
+  onSetStatus,
+  onClear,
+}: {
+  count: number;
+  statuses: string[];
+  busy: boolean;
+  onReenrich: () => void;
+  onSetStatus: (s: string | null) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="card p-4 flex items-center gap-3 flex-wrap text-sm border-accent">
+      <strong>{count} selected</strong>
+      <button className="btn-ghost" disabled={busy} onClick={onReenrich}>
+        {busy ? 'Re-enriching…' : 'Re-enrich selected'}
+      </button>
+      <select
+        className="input"
+        style={{ width: 220 }}
+        defaultValue=""
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v) onSetStatus(v);
+          e.currentTarget.value = '';
+        }}
+      >
+        <option value="" disabled>
+          Set status to…
+        </option>
+        <option value="">— clear override —</option>
+        {statuses.filter(Boolean).map((s) => (
+          <option key={s} value={s}>{s}</option>
+        ))}
+      </select>
+      <button className="btn-ghost ml-auto" onClick={onClear}>
+        clear selection
+      </button>
+    </div>
+  );
+}
+
 type SortKey =
   | 'brand_name'
   | 'category_fit'
@@ -256,6 +379,9 @@ function BrandTable({
   reenrichOne,
   patchBrand,
   statuses,
+  selected,
+  toggleSelected,
+  selectAllFiltered,
 }: {
   brands: BrandRecord[];
   expanded: number | null;
@@ -263,6 +389,9 @@ function BrandTable({
   reenrichOne: (id: number) => void;
   patchBrand: (id: number, p: { user_status?: string | null; user_notes?: string | null }) => void;
   statuses: string[];
+  selected: Set<number>;
+  toggleSelected: (id: number) => void;
+  selectAllFiltered: () => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>('lead_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -317,6 +446,18 @@ function BrandTable({
       <table>
         <thead>
           <tr>
+            <th>
+              <input
+                type="checkbox"
+                title="Select all visible"
+                checked={brands.length > 0 && brands.every((b) => selected.has(b.id!))}
+                onChange={(e) =>
+                  e.target.checked
+                    ? selectAllFiltered()
+                    : brands.forEach((b) => selected.has(b.id!) && toggleSelected(b.id!))
+                }
+              />
+            </th>
             <th></th>
             <H k="brand_name" label="Brand" />
             <th>Website</th>
@@ -342,6 +483,13 @@ function BrandTable({
             return (
               <Fragment key={b.id}>
                 <tr className={isOpen ? 'bg-panel/40' : undefined}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(b.id!)}
+                      onChange={() => toggleSelected(b.id!)}
+                    />
+                  </td>
                   <td>
                     <button
                       className="btn-ghost text-xs"
@@ -428,7 +576,7 @@ function BrandTable({
                 </tr>
                 {isOpen && (
                   <tr>
-                    <td colSpan={16} className="bg-panel/30">
+                    <td colSpan={17} className="bg-panel/30">
                       <BrandDetail
                         b={b}
                         statuses={statuses}

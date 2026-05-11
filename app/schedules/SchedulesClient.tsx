@@ -52,6 +52,23 @@ export default function SchedulesClient({ initial }: { initial: ScheduleRow[] })
     refresh();
   }
 
+  async function runOne(id: number) {
+    if (!confirm('Run this schedule right now? It will discover + enrich.')) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/schedules/${id}/run`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`);
+      await refresh();
+      alert(`Done. Scan #${d.scan_id} ${d.alerted ? '(alert sent)' : ''}`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runNow() {
     setBusy(true);
     setError(null);
@@ -139,7 +156,10 @@ export default function SchedulesClient({ initial }: { initial: ScheduleRow[] })
                     {s.enabled ? 'on' : 'off'}
                   </button>
                 </td>
-                <td>
+                <td className="flex gap-2">
+                  <button className="btn-ghost text-xs" disabled={busy} onClick={() => runOne(s.id)}>
+                    run now
+                  </button>
                   <button className="btn-ghost text-xs" onClick={() => remove(s.id)}>
                     delete
                   </button>

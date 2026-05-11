@@ -38,6 +38,14 @@ export default async function ScanDetail({ params }: { params: { id: string } })
         <div><span className="text-muted">Created:</span> {safeScan.created_at}</div>
         <div><span className="text-muted">Brands:</span> {brands.length}</div>
       </div>
+      {scan.notes && (
+        <details className="card p-4">
+          <summary className="text-sm text-muted cursor-pointer">
+            Persisted discovery log ({scan.notes.split('\n').length} lines)
+          </summary>
+          <pre className="text-xs whitespace-pre-wrap mt-2 text-muted">{scan.notes}</pre>
+        </details>
+      )}
       <ScanClient
         scan={{ id: scan.id, category: scan.category, status: scan.status, notes: scan.notes }}
         initialBrands={brands.map(serializeBrand)}
