@@ -24,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <nav className="flex gap-2 text-sm">
               <a className="btn-ghost" href="/">Home</a>
               <a className="btn-ghost" href="/scans">Scans</a>
+              <a className="btn-ghost" href="/investigate">Investigate</a>
               <a className="btn-ghost" href="/schedules">Schedules</a>
               <a className="btn-ghost" href="/settings">Settings</a>
             </nav>

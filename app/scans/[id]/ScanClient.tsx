@@ -222,6 +222,23 @@ export default function ScanClient({
         setHasEmailOnly={setHasEmailOnly}
         total={brands.length}
         shown={filtered.length}
+        applyPreset={(preset) => {
+          // reset everything first
+          setFilterStatus('');
+          setFilterText('');
+          setHasAdsOnly(false);
+          setHasEmailOnly(false);
+          if (preset === 'best') {
+            setHasEmailOnly(true);
+            setHasAdsOnly(true);
+          } else if (preset === 'qualified') {
+            setFilterStatus('Qualified');
+          } else if (preset === 'needs_review') {
+            setFilterStatus('Needs Review');
+          } else if (preset === 'not_contacted') {
+            // no-op beyond reset; the table is sorted by lead score already
+          }
+        }}
       />
 
       {log.length > 0 && (
@@ -271,9 +288,22 @@ function FilterBar(props: {
   setHasEmailOnly: (v: boolean) => void;
   total: number;
   shown: number;
+  applyPreset: (p: 'best' | 'qualified' | 'needs_review' | 'not_contacted') => void;
 }) {
   return (
     <div className="card p-4 flex items-center gap-3 flex-wrap text-sm">
+      <div className="flex gap-1">
+        <button className="pill cursor-pointer hover:border-accent" onClick={() => props.applyPreset('best')}>
+          🎯 Best leads
+        </button>
+        <button className="pill cursor-pointer hover:border-accent" onClick={() => props.applyPreset('qualified')}>
+          ✓ Qualified
+        </button>
+        <button className="pill cursor-pointer hover:border-accent" onClick={() => props.applyPreset('needs_review')}>
+          ? Needs review
+        </button>
+      </div>
+      <div className="w-px h-6 bg-line" />
       <input
         className="input"
         style={{ width: 220 }}
@@ -610,6 +640,7 @@ function BrandDetail({
     final_url?: string | null;
     klaviyo?: boolean;
     product_paths?: string[];
+    llm_fit?: { score: number; reason: string };
   }>(b.raw_sources_json);
   const hunterEmails = parseJson<
     Array<{
@@ -629,6 +660,12 @@ function BrandDetail({
   return (
     <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
       <section>
+        {raw?.llm_fit && (
+          <div className="mb-3 text-xs text-muted">
+            <span className="pill mr-1">LLM fit {raw.llm_fit.score}</span>
+            <em>{raw.llm_fit.reason}</em>
+          </div>
+        )}
         <h4 className="font-semibold mb-2">Operator</h4>
         <label className="text-xs text-muted block mb-1">Status override</label>
         <select

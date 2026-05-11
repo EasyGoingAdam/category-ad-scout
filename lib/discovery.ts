@@ -5,6 +5,7 @@ import {
   isBlockedDomain,
   urlToDomain,
 } from './normalize';
+import { rerankCategoryFit } from './rerank';
 
 export type Candidate = {
   domain: string;
@@ -94,6 +95,40 @@ export async function discoverBrands(opts: {
     const cand = buildCandidate(category, domain, info.hits, meta);
     if (cand) out.push(cand);
   });
+
+  // Phase 3b: LLM re-rank category fit (uses the title/description as evidence).
+  // Falls back to the heuristic score on any failure.
+  if (process.env.ANTHROPIC_API_KEY && out.length > 0) {
+    try {
+      log(`Re-ranking ${out.length} candidates with Claude…`);
+      const llm = await rerankCategoryFit(
+        category,
+        out.map((c) => ({
+          domain: c.domain,
+          brand_name: c.brand_name,
+          title: c.homepage_title,
+          description: c.meta_description,
+        })),
+      );
+      const byDomain = new Map(llm.map((r) => [r.domain, r]));
+      for (const c of out) {
+        const r = byDomain.get(c.domain);
+        if (!r) continue;
+        // 70/30 blend favoring the LLM; preserves stability if LLM mis-scores once.
+        c.category_fit = Math.round(0.7 * r.fit_score + 0.3 * c.category_fit);
+        // Stash reason into raw_sources_json for the detail panel.
+        try {
+          const obj = JSON.parse(c.raw_sources_json);
+          obj.llm_fit = { score: r.fit_score, reason: r.reason };
+          c.raw_sources_json = JSON.stringify(obj);
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch (e: any) {
+      log(`LLM re-rank failed, keeping heuristic scores: ${e?.message ?? e}`);
+    }
+  }
 
   log(`Built ${out.length} brand candidates.`);
   return out;
