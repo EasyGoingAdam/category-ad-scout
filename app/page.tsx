@@ -1,9 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CategorySuggestion } from '@/lib/types';
 
+type Integration = { configured: boolean; vars: string[]; provider?: string | null };
+
 export default function Home() {
+  const [needsSetup, setNeedsSetup] = useState<null | Array<{ name: string; vars: string }>>(
+    null,
+  );
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((d) => {
+        const blocking: Array<{ name: string; vars: string }> = [];
+        const req: Array<[string, string]> = [
+          ['database', 'Database'],
+          ['anthropic', 'Anthropic (for brainstorming)'],
+          ['search', 'Search provider (for discovery)'],
+        ];
+        for (const [k, label] of req) {
+          const i: Integration | undefined = d.integrations?.[k];
+          if (i && !i.configured) blocking.push({ name: label, vars: i.vars.join(' / ') });
+        }
+        setNeedsSetup(blocking);
+      })
+      .catch(() => setNeedsSetup(null));
+  }, []);
+
   const [category, setCategory] = useState('');
   const [seed, setSeed] = useState('');
   const [suggestions, setSuggestions] = useState<CategorySuggestion[]>([]);
@@ -51,6 +75,30 @@ export default function Home() {
 
   return (
     <main className="space-y-8">
+      {needsSetup && needsSetup.length > 0 && (
+        <section className="card p-5 border-amber-700/50">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-amber-300">Finish setup before your first scan</h3>
+              <p className="text-sm text-muted">
+                These integrations are missing. Add the env vars and restart the service.
+              </p>
+            </div>
+            <a className="btn-ghost text-sm" href="/settings">
+              Open settings →
+            </a>
+          </div>
+          <ul className="mt-3 text-sm space-y-1">
+            {needsSetup.map((n) => (
+              <li key={n.name}>
+                <span className="pill border-amber-700/50 text-amber-300 mr-2">missing</span>
+                <strong>{n.name}</strong>{' '}
+                <span className="text-muted font-mono text-xs">{n.vars}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <section className="card p-6">
         <h1 className="text-2xl font-semibold mb-1">Find ecommerce brands worth contacting</h1>
         <p className="text-muted text-sm mb-5">
