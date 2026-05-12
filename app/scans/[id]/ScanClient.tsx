@@ -678,11 +678,39 @@ function BrandDetail({
     return localStorage.getItem(DEFAULT_PITCH_KEY) ?? '';
   });
   const [tone, setTone] = useState<'professional' | 'warm' | 'punchy'>('professional');
-  const [draft, setDraft] = useState<{ subject: string; body: string; notes?: string } | null>(
-    null,
-  );
+  const [draft, setDraft] = useState<
+    | null
+    | { id?: number; subject: string; body: string; notes?: string; sent_at?: string | null }
+  >(null);
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [history, setHistory] = useState<
+    Array<{
+      id: number;
+      subject: string;
+      body: string;
+      notes: string | null;
+      created_at: string;
+      sent_at: string | null;
+      tone: string | null;
+    }>
+  >([]);
+
+  async function loadHistory() {
+    try {
+      const r = await fetch(`/api/brand/${b.id}/draft`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setHistory(d.drafts ?? []);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [b.id]);
 
   async function generateDraft() {
     setDrafting(true);
@@ -697,11 +725,29 @@ function BrandDetail({
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`);
-      setDraft({ subject: d.subject, body: d.body, notes: d.notes });
+      setDraft({ id: d.draft_id, subject: d.subject, body: d.body, notes: d.notes, sent_at: null });
+      await loadHistory();
     } catch (e: any) {
       setDraftError(e?.message ?? 'failed');
     } finally {
       setDrafting(false);
+    }
+  }
+
+  async function markSent(draftId: number) {
+    const r = await fetch(`/api/draft/${draftId}`, { method: 'POST' });
+    if (r.ok) {
+      await loadHistory();
+      if (draft && draft.id === draftId) setDraft({ ...draft, sent_at: new Date().toISOString() });
+    }
+  }
+
+  async function deleteDraft(draftId: number) {
+    if (!confirm('Delete this draft?')) return;
+    const r = await fetch(`/api/draft/${draftId}`, { method: 'DELETE' });
+    if (r.ok) {
+      await loadHistory();
+      if (draft && draft.id === draftId) setDraft(null);
     }
   }
 
@@ -861,7 +907,7 @@ function BrandDetail({
             <hr className="border-line" />
             <div className="flex items-baseline justify-between gap-2">
               <strong>Body:</strong>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button className="btn-ghost text-xs" onClick={() => copy(draft.body)}>
                   copy body
                 </button>
@@ -869,6 +915,20 @@ function BrandDetail({
                   <button className="btn-ghost text-xs" onClick={mailto}>
                     open in mail →
                   </button>
+                )}
+                {draft.id && !draft.sent_at && (
+                  <button
+                    className="btn-ghost text-xs"
+                    onClick={() => markSent(draft.id!)}
+                    title="Mark this draft as sent (bumps brand to Contacted)"
+                  >
+                    mark sent
+                  </button>
+                )}
+                {draft.sent_at && (
+                  <span className="pill text-emerald-300 border-emerald-700/50">
+                    sent {formatTimeAgo(draft.sent_at)}
+                  </span>
                 )}
               </div>
             </div>
@@ -879,6 +939,55 @@ function BrandDetail({
               </div>
             )}
           </div>
+        )}
+        {history.length > 0 && (
+          <details className="mt-3">
+            <summary className="text-xs text-muted cursor-pointer">
+              Draft history ({history.length})
+            </summary>
+            <ul className="mt-2 space-y-2 text-xs">
+              {history.map((h) => (
+                <li
+                  key={h.id}
+                  className="border border-line rounded p-2 hover:border-accent cursor-pointer"
+                  onClick={() =>
+                    setDraft({
+                      id: h.id,
+                      subject: h.subject,
+                      body: h.body,
+                      notes: h.notes ?? undefined,
+                      sent_at: h.sent_at,
+                    })
+                  }
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <strong className="truncate">{h.subject}</strong>
+                    <span className="text-muted flex items-center gap-2">
+                      {h.sent_at ? (
+                        <span className="pill text-emerald-300 border-emerald-700/50">
+                          sent
+                        </span>
+                      ) : (
+                        <span className="pill">draft</span>
+                      )}
+                      {formatTimeAgo(h.created_at)}
+                      <button
+                        className="text-red-400 hover:text-red-300"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteDraft(h.id);
+                        }}
+                        title="Delete this draft"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </div>
+                  <div className="text-muted truncate">{h.body.slice(0, 140)}…</div>
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
       </section>
 

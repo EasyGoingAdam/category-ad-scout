@@ -88,6 +88,20 @@ CREATE TABLE IF NOT EXISTS schedules (
 ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_status TEXT;
 ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_notes TEXT;
 ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_updated_at TIMESTAMPTZ;
+
+-- Outreach draft history (v0.3).
+CREATE TABLE IF NOT EXISTS drafts (
+  id BIGSERIAL PRIMARY KEY,
+  brand_id BIGINT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  notes TEXT,
+  tone TEXT,
+  sender_pitch TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_drafts_brand ON drafts(brand_id);
 `;
 
 export async function migrate() {
