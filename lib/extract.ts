@@ -113,9 +113,10 @@ export async function fetchPageMeta(rawUrl: string): Promise<PageMeta | null> {
   }
 }
 
-export async function fetchPageMetaPool<T>(
+export async function fetchPageMetaPool(
   urls: string[],
   concurrency = 5,
+  onResult?: (idx: number, meta: PageMeta | null) => void | Promise<void>,
 ): Promise<Array<PageMeta | null>> {
   const out: Array<PageMeta | null> = new Array(urls.length).fill(null);
   let i = 0;
@@ -124,7 +125,9 @@ export async function fetchPageMetaPool<T>(
       while (true) {
         const idx = i++;
         if (idx >= urls.length) return;
-        out[idx] = await fetchPageMeta(urls[idx]);
+        const meta = await fetchPageMeta(urls[idx]);
+        out[idx] = meta;
+        if (onResult) await onResult(idx, meta);
       }
     }),
   );

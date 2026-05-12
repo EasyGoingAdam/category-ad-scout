@@ -46,6 +46,12 @@ export async function discoverBrands(opts: {
   maxQueries?: number;
   maxCandidates?: number;
   onProgress?: (msg: string) => void;
+  /** Fired for each candidate as soon as its homepage fetch completes,
+   *  before LLM re-rank runs. Use this to stream rows into a DB. */
+  onCandidate?: (c: Candidate) => void | Promise<void>;
+  /** Fired after the LLM re-rank step with the {domain, fit_score, reason}
+   *  for each candidate so a caller can update the persisted row. */
+  onRerank?: (domain: string, fit_score: number, reason: string) => void | Promise<void>;
 }): Promise<Candidate[]> {
   const { category } = opts;
   const maxQueries = opts.maxQueries ?? 10;
@@ -84,16 +90,18 @@ export async function discoverBrands(opts: {
 
   log(`Filtered to ${ranked.length} candidate domains. Fetching homepages…`);
 
-  // Phase 2c: fetch homepage of each candidate to enrich + verify
+  // Phase 2c: fetch homepage of each candidate to enrich + verify.
+  // Builds and emits candidates incrementally as each homepage completes,
+  // so a caller can stream them into a DB and the UI can poll.
   const homepages = ranked.map(([d]) => `https://${d}/`);
-  const metas = await fetchPageMetaPool(homepages, 6);
-
-  // Phase 3: normalize + assemble
   const out: Candidate[] = [];
-  ranked.forEach(([domain, info], idx) => {
-    const meta = metas[idx];
+  await fetchPageMetaPool(homepages, 6, async (idx, meta) => {
+    const [domain, info] = ranked[idx];
     const cand = buildCandidate(category, domain, info.hits, meta);
-    if (cand) out.push(cand);
+    if (cand) {
+      out.push(cand);
+      if (opts.onCandidate) await opts.onCandidate(cand);
+    }
   });
 
   // Phase 3b: LLM re-rank category fit (uses the title/description as evidence).
@@ -123,6 +131,9 @@ export async function discoverBrands(opts: {
           c.raw_sources_json = JSON.stringify(obj);
         } catch {
           /* ignore */
+        }
+        if (opts.onRerank) {
+          await opts.onRerank(c.domain, c.category_fit, r.reason);
         }
       }
     } catch (e: any) {

@@ -35,6 +35,7 @@ export default function ScanClient({
   const [hasEmailOnly, setHasEmailOnly] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [scanStatus, setScanStatus] = useState<string>(scan.status);
 
   // Auto-trigger discovery if the scan was just created and is empty.
   useEffect(() => {
@@ -43,6 +44,38 @@ export default function ScanClient({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live-poll while discovery is in progress so new brands appear in the table.
+  useEffect(() => {
+    if (running !== 'discover' && scanStatus !== 'discovering' && scanStatus !== 'running') {
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const [statusRes, brandsRes] = await Promise.all([
+          fetch(`/api/scan/${scan.id}/status`),
+          fetch(`/api/scan/${scan.id}/brands`),
+        ]);
+        if (statusRes.ok) {
+          const d = await statusRes.json();
+          setScanStatus(d.status);
+        }
+        if (brandsRes.ok) {
+          const d = await brandsRes.json();
+          if (Array.isArray(d.brands)) setBrands(d.brands);
+        }
+      } catch {
+        /* swallow, keep polling */
+      }
+    };
+    const id = setInterval(tick, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [running, scanStatus, scan.id]);
 
   async function refreshBrands() {
     const r = await fetch(`/api/scan/${scan.id}/brands`);
@@ -186,11 +219,16 @@ export default function ScanClient({
       <div className="card p-5 flex items-center gap-3 flex-wrap">
         <button className="btn" disabled={!!running} onClick={() => discover()}>
           {running === 'discover'
-            ? 'Discovering…'
+            ? `Discovering… (${brands.length})`
             : brands.length > 0
               ? 'Re-run discovery'
               : 'Discover brands'}
         </button>
+        {scanStatus === 'discovering' && running !== 'discover' && (
+          <span className="pill text-amber-300 border-amber-700/50">
+            discovery in progress · {brands.length} so far
+          </span>
+        )}
         <button
           className="btn-ghost"
           disabled={!!running || brands.length === 0}
