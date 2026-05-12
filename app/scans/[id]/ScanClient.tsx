@@ -624,6 +624,8 @@ function BrandTable({
   );
 }
 
+const DEFAULT_PITCH_KEY = 'cas:outreach_pitch';
+
 function BrandDetail({
   b,
   statuses,
@@ -633,6 +635,47 @@ function BrandDetail({
   statuses: string[];
   patchBrand: (p: { user_status?: string | null; user_notes?: string | null }) => void;
 }) {
+  const [pitch, setPitch] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(DEFAULT_PITCH_KEY) ?? '';
+  });
+  const [tone, setTone] = useState<'professional' | 'warm' | 'punchy'>('professional');
+  const [draft, setDraft] = useState<{ subject: string; body: string; notes?: string } | null>(
+    null,
+  );
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  async function generateDraft() {
+    setDrafting(true);
+    setDraftError(null);
+    setDraft(null);
+    if (typeof window !== 'undefined') localStorage.setItem(DEFAULT_PITCH_KEY, pitch);
+    try {
+      const r = await fetch(`/api/brand/${b.id}/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sender_pitch: pitch, tone }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`);
+      setDraft({ subject: d.subject, body: d.body, notes: d.notes });
+    } catch (e: any) {
+      setDraftError(e?.message ?? 'failed');
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  function copy(s: string) {
+    void navigator.clipboard.writeText(s);
+  }
+
+  function mailto() {
+    if (!draft || !b.best_email) return;
+    const url = `mailto:${encodeURIComponent(b.best_email)}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`;
+    window.location.href = url;
+  }
   const socials = parseJson<Array<{ platform: string; url: string }>>(b.socials_json) ?? [];
   const raw = parseJson<{
     search_hits?: Array<{ url: string; title: string; description?: string }>;
@@ -734,6 +777,70 @@ function BrandDetail({
               </li>
             ))}
           </ul>
+        )}
+      </section>
+
+      <section className="md:col-span-3">
+        <h4 className="font-semibold mb-2">Outreach</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+          <textarea
+            className="input md:col-span-2"
+            rows={2}
+            placeholder="One-line sender pitch — what do you do? (saved locally)"
+            value={pitch}
+            onChange={(e) => setPitch(e.target.value)}
+          />
+          <div className="flex items-stretch gap-2">
+            <select
+              className="input"
+              value={tone}
+              onChange={(e) => setTone(e.target.value as any)}
+            >
+              <option value="professional">professional</option>
+              <option value="warm">warm</option>
+              <option value="punchy">punchy</option>
+            </select>
+            <button
+              className="btn"
+              disabled={drafting || !pitch.trim()}
+              onClick={generateDraft}
+              title="Generate a brand-specific cold email"
+            >
+              {drafting ? '…' : 'Draft'}
+            </button>
+          </div>
+        </div>
+        {draftError && <div className="text-red-400 text-xs mb-2">{draftError}</div>}
+        {draft && (
+          <div className="border border-line rounded p-3 space-y-2 text-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <strong>Subject:</strong>
+              <button className="btn-ghost text-xs" onClick={() => copy(draft.subject)}>
+                copy
+              </button>
+            </div>
+            <div className="font-mono text-sm">{draft.subject}</div>
+            <hr className="border-line" />
+            <div className="flex items-baseline justify-between gap-2">
+              <strong>Body:</strong>
+              <div className="flex gap-2">
+                <button className="btn-ghost text-xs" onClick={() => copy(draft.body)}>
+                  copy body
+                </button>
+                {b.best_email && (
+                  <button className="btn-ghost text-xs" onClick={mailto}>
+                    open in mail →
+                  </button>
+                )}
+              </div>
+            </div>
+            <pre className="whitespace-pre-wrap text-sm">{draft.body}</pre>
+            {draft.notes && (
+              <div className="text-xs text-muted italic border-t border-line pt-2">
+                {draft.notes}
+              </div>
+            )}
+          </div>
         )}
       </section>
 
