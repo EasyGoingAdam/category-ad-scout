@@ -5,10 +5,32 @@ import type { CategorySuggestion } from '@/lib/types';
 
 type Integration = { configured: boolean; vars: string[]; provider?: string | null };
 
+type SavedCategory = {
+  id: number;
+  category: string;
+  rationale: string | null;
+  amazon_fit: number | null;
+  dtc_potential: number | null;
+  meta_ad_likelihood: number | null;
+  brand_density: number | null;
+  example_brands: string[];
+  last_scan_id: number | null;
+  last_scanned_at: string | null;
+  created_at: string;
+};
+
 export default function Home() {
   const [needsSetup, setNeedsSetup] = useState<null | Array<{ name: string; vars: string }>>(
     null,
   );
+  const [category, setCategory] = useState('');
+  const [seed, setSeed] = useState('');
+  const [suggestions, setSuggestions] = useState<CategorySuggestion[]>([]);
+  const [savedSet, setSavedSet] = useState<Set<string>>(new Set());
+  const [saved, setSaved] = useState<SavedCategory[] | null>(null);
+  const [loading, setLoading] = useState<'none' | 'brainstorm' | 'scan'>('none');
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
@@ -26,13 +48,22 @@ export default function Home() {
         setNeedsSetup(blocking);
       })
       .catch(() => setNeedsSetup(null));
+
+    void loadSaved();
   }, []);
 
-  const [category, setCategory] = useState('');
-  const [seed, setSeed] = useState('');
-  const [suggestions, setSuggestions] = useState<CategorySuggestion[]>([]);
-  const [loading, setLoading] = useState<'none' | 'brainstorm' | 'scan'>('none');
-  const [error, setError] = useState<string | null>(null);
+  async function loadSaved() {
+    try {
+      const r = await fetch('/api/saved-categories');
+      if (!r.ok) return;
+      const d = await r.json();
+      const arr: SavedCategory[] = d.categories ?? [];
+      setSaved(arr);
+      setSavedSet(new Set(arr.map((s) => s.category.toLowerCase())));
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function brainstorm() {
     setLoading('brainstorm');
@@ -73,6 +104,27 @@ export default function Home() {
     }
   }
 
+  async function saveCategory(s: CategorySuggestion) {
+    try {
+      const r = await fetch('/api/saved-categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(s),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setSavedSet((prev) => new Set([...prev, s.category.toLowerCase()]));
+      await loadSaved();
+    } catch (e: any) {
+      alert(e?.message ?? 'save failed');
+    }
+  }
+
+  async function removeSaved(id: number) {
+    if (!confirm('Remove this saved category?')) return;
+    await fetch(`/api/saved-categories/${id}`, { method: 'DELETE' });
+    await loadSaved();
+  }
+
   return (
     <main className="space-y-8">
       {needsSetup && needsSetup.length > 0 && (
@@ -99,6 +151,7 @@ export default function Home() {
           </ul>
         </section>
       )}
+
       <section className="card p-6">
         <h1 className="text-2xl font-semibold mb-1">Find ecommerce brands worth contacting</h1>
         <p className="text-muted text-sm mb-5">
@@ -123,6 +176,52 @@ export default function Home() {
           </button>
         </div>
       </section>
+
+      {saved && saved.length > 0 && (
+        <section className="card p-6">
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-lg font-semibold">Saved categories</h2>
+            <p className="text-xs text-muted">{saved.length}</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {saved.map((s) => (
+              <div key={s.id} className="border border-line rounded-md p-3 hover:border-accent">
+                <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <h3 className="font-semibold capitalize">{s.category}</h3>
+                  <button
+                    className="btn-ghost text-xs"
+                    onClick={() => startScan(s.category)}
+                    disabled={loading !== 'none'}
+                  >
+                    rescan →
+                  </button>
+                </div>
+                {s.rationale && (
+                  <p className="text-xs text-muted mb-2 line-clamp-2">{s.rationale}</p>
+                )}
+                <div className="text-xs text-muted flex items-center justify-between">
+                  <span>
+                    {s.last_scan_id ? (
+                      <a className="text-accent" href={`/scans/${s.last_scan_id}`}>
+                        last scan #{s.last_scan_id}
+                      </a>
+                    ) : (
+                      'never scanned'
+                    )}
+                  </span>
+                  <button
+                    className="text-red-400 hover:text-red-300 text-xs"
+                    onClick={() => removeSaved(s.id)}
+                    title="Remove from saved"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="card p-6">
         <div className="flex items-baseline justify-between mb-3">
@@ -161,7 +260,13 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {suggestions.map((s) => (
-              <CategoryCard key={s.category} s={s} onPick={() => startScan(s.category)} />
+              <CategoryCard
+                key={s.category}
+                s={s}
+                isSaved={savedSet.has(s.category.toLowerCase())}
+                onPick={() => startScan(s.category)}
+                onSave={() => saveCategory(s)}
+              />
             ))}
           </div>
         )}
@@ -170,12 +275,34 @@ export default function Home() {
   );
 }
 
-function CategoryCard({ s, onPick }: { s: CategorySuggestion; onPick: () => void }) {
+function CategoryCard({
+  s,
+  isSaved,
+  onPick,
+  onSave,
+}: {
+  s: CategorySuggestion;
+  isSaved: boolean;
+  onPick: () => void;
+  onSave: () => void;
+}) {
   return (
     <div className="border border-line rounded-md p-4 hover:border-accent transition-colors">
       <div className="flex items-start justify-between gap-3 mb-1">
         <h3 className="font-semibold capitalize">{s.category}</h3>
-        <button className="btn-ghost text-xs" onClick={onPick}>Use →</button>
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost text-xs"
+            onClick={onSave}
+            disabled={isSaved}
+            title={isSaved ? 'Already saved' : 'Save for later'}
+          >
+            {isSaved ? '✓ saved' : '☆ save'}
+          </button>
+          <button className="btn-ghost text-xs" onClick={onPick}>
+            Use →
+          </button>
+        </div>
       </div>
       <p className="text-sm text-muted mb-3 leading-snug">{s.rationale}</p>
       <div className="flex flex-wrap gap-2 mb-3">
@@ -198,7 +325,5 @@ function Score({ label, v }: { label: string; v: number }) {
     v >= 80 ? 'text-emerald-300 border-emerald-700/50' :
     v >= 60 ? 'text-amber-300 border-amber-700/50' :
               'text-muted border-line';
-  return (
-    <span className={`pill ${tone}`}>{label} {v}</span>
-  );
+  return <span className={`pill ${tone}`}>{label} {v}</span>;
 }

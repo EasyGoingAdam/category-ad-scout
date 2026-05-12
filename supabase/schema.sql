@@ -80,3 +80,19 @@ CREATE TABLE IF NOT EXISTS drafts (
   sent_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_brand ON drafts(brand_id);
+
+-- Saved categories from brainstorm output (v0.4).
+CREATE TABLE IF NOT EXISTS saved_categories (
+  id BIGSERIAL PRIMARY KEY,
+  category TEXT NOT NULL,
+  rationale TEXT,
+  amazon_fit INTEGER,
+  dtc_potential INTEGER,
+  meta_ad_likelihood INTEGER,
+  brand_density INTEGER,
+  example_brands TEXT,
+  last_scan_id BIGINT REFERENCES scans(id) ON DELETE SET NULL,
+  last_scanned_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (category)
+);

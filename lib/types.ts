@@ -45,6 +45,8 @@ export type BrandRecord = {
   user_status?: string | null;
   user_notes?: string | null;
   user_updated_at?: string | null;
+  has_drafts?: boolean;
+  has_sent_drafts?: boolean;
   created_at?: string;
 };
 

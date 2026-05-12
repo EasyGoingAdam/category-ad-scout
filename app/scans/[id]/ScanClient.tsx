@@ -33,6 +33,7 @@ export default function ScanClient({
   const [filterText, setFilterText] = useState('');
   const [hasAdsOnly, setHasAdsOnly] = useState(false);
   const [hasEmailOnly, setHasEmailOnly] = useState(false);
+  const [notDraftedOnly, setNotDraftedOnly] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [scanStatus, setScanStatus] = useState<string>(scan.status);
@@ -205,6 +206,7 @@ export default function ScanClient({
     return brands.filter((b) => {
       if (hasAdsOnly && !((b.meta_active_ad_count ?? 0) > 0)) return false;
       if (hasEmailOnly && !b.best_email) return false;
+      if (notDraftedOnly && b.has_drafts) return false;
       if (filterStatus && (b.user_status ?? b.status) !== filterStatus) return false;
       if (q) {
         const hay = `${b.brand_name} ${b.domain} ${b.best_email ?? ''}`.toLowerCase();
@@ -212,7 +214,47 @@ export default function ScanClient({
       }
       return true;
     });
-  }, [brands, filterStatus, filterText, hasAdsOnly, hasEmailOnly]);
+  }, [brands, filterStatus, filterText, hasAdsOnly, hasEmailOnly, notDraftedOnly]);
+
+  const summary = useMemo(() => {
+    let qualified = 0;
+    let withAds = 0;
+    let withEmail = 0;
+    let withDraft = 0;
+    let withSent = 0;
+    let trafficBuckets = { small: 0, sweet: 0, large: 0 };
+    let bestLead = 0;
+    let avgLead = 0;
+    let leadCount = 0;
+    for (const b of brands) {
+      if ((b.lead_score ?? 0) >= 70) qualified++;
+      if ((b.meta_active_ad_count ?? 0) > 0) withAds++;
+      if (b.best_email) withEmail++;
+      if (b.has_drafts) withDraft++;
+      if (b.has_sent_drafts) withSent++;
+      const t = b.semrush_organic_traffic != null ? Number(b.semrush_organic_traffic) : 0;
+      if (t > 0) {
+        if (t < 25_000) trafficBuckets.small++;
+        else if (t <= 500_000) trafficBuckets.sweet++;
+        else trafficBuckets.large++;
+      }
+      if (b.lead_score != null) {
+        leadCount++;
+        avgLead += b.lead_score;
+        if (b.lead_score > bestLead) bestLead = b.lead_score;
+      }
+    }
+    return {
+      qualified,
+      withAds,
+      withEmail,
+      withDraft,
+      withSent,
+      trafficBuckets,
+      bestLead,
+      avgLead: leadCount > 0 ? Math.round(avgLead / leadCount) : 0,
+    };
+  }, [brands]);
 
   return (
     <div className="space-y-4">
@@ -248,6 +290,8 @@ export default function ScanClient({
         {error && <div className="text-sm text-red-400 ml-auto">{error}</div>}
       </div>
 
+      {brands.length > 0 && <SummaryCard total={brands.length} s={summary} />}
+
       <FilterBar
         statuses={USER_STATUSES}
         filterStatus={filterStatus}
@@ -258,6 +302,8 @@ export default function ScanClient({
         setHasAdsOnly={setHasAdsOnly}
         hasEmailOnly={hasEmailOnly}
         setHasEmailOnly={setHasEmailOnly}
+        notDraftedOnly={notDraftedOnly}
+        setNotDraftedOnly={setNotDraftedOnly}
         total={brands.length}
         shown={filtered.length}
         applyPreset={(preset) => {
@@ -324,6 +370,8 @@ function FilterBar(props: {
   setHasAdsOnly: (v: boolean) => void;
   hasEmailOnly: boolean;
   setHasEmailOnly: (v: boolean) => void;
+  notDraftedOnly: boolean;
+  setNotDraftedOnly: (v: boolean) => void;
   total: number;
   shown: number;
   applyPreset: (p: 'best' | 'qualified' | 'needs_review' | 'not_contacted') => void;
@@ -376,9 +424,107 @@ function FilterBar(props: {
         />
         Has email
       </label>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={props.notDraftedOnly}
+          onChange={(e) => props.setNotDraftedOnly(e.target.checked)}
+        />
+        Not yet drafted
+      </label>
       <span className="ml-auto text-muted">
         {props.shown} / {props.total}
       </span>
+    </div>
+  );
+}
+
+function SummaryCard({
+  total,
+  s,
+}: {
+  total: number;
+  s: {
+    qualified: number;
+    withAds: number;
+    withEmail: number;
+    withDraft: number;
+    withSent: number;
+    trafficBuckets: { small: number; sweet: number; large: number };
+    bestLead: number;
+    avgLead: number;
+  };
+}) {
+  const trafficTotal =
+    s.trafficBuckets.small + s.trafficBuckets.sweet + s.trafficBuckets.large;
+  return (
+    <div className="card p-5 grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
+      <SummaryStat label="Brands" value={String(total)} />
+      <SummaryStat
+        label="Qualified ≥70"
+        value={`${s.qualified}`}
+        sub={total > 0 ? `${Math.round((s.qualified / total) * 100)}%` : ''}
+      />
+      <SummaryStat label="With live ads" value={String(s.withAds)} />
+      <SummaryStat label="With email" value={String(s.withEmail)} />
+      <SummaryStat
+        label="Drafted"
+        value={`${s.withDraft}`}
+        sub={s.withSent > 0 ? `${s.withSent} sent` : undefined}
+      />
+      <SummaryStat
+        label="Avg / best lead"
+        value={`${s.avgLead} / ${s.bestLead}`}
+      />
+      {trafficTotal > 0 && (
+        <div className="col-span-2 md:col-span-6 flex items-center gap-2 text-xs text-muted">
+          <span>Traffic distribution:</span>
+          <Bar
+            label={`<25k (${s.trafficBuckets.small})`}
+            pct={(s.trafficBuckets.small / trafficTotal) * 100}
+            color="#7a828d"
+          />
+          <Bar
+            label={`25k-500k sweet spot (${s.trafficBuckets.sweet})`}
+            pct={(s.trafficBuckets.sweet / trafficTotal) * 100}
+            color="#ff7a45"
+          />
+          <Bar
+            label={`>500k (${s.trafficBuckets.large})`}
+            pct={(s.trafficBuckets.large / trafficTotal) * 100}
+            color="#7a828d"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SummaryStat({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-muted">{label}</div>
+      <div className="text-xl font-semibold leading-tight">{value}</div>
+      {sub && <div className="text-xs text-muted">{sub}</div>}
+    </div>
+  );
+}
+
+function Bar({ label, pct, color }: { label: string; pct: number; color: string }) {
+  return (
+    <div className="flex-1 min-w-[80px]" title={label}>
+      <div className="text-xs whitespace-nowrap text-muted truncate">{label}</div>
+      <div className="h-2 rounded overflow-hidden bg-panel border border-line">
+        <div style={{ width: `${pct}%`, background: color, height: '100%' }} />
+      </div>
     </div>
   );
 }
