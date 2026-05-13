@@ -1,6 +1,7 @@
 import { sql } from '@/lib/db';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 import ScanClient from './ScanClient';
 import type { BrandRecord } from '@/lib/types';
 
@@ -67,10 +68,12 @@ export default async function ScanDetail({ params }: { params: { id: string } })
           <pre className="text-xs whitespace-pre-wrap mt-2 text-muted">{scan.notes}</pre>
         </details>
       )}
-      <ScanClient
-        scan={{ id: scan.id, category: scan.category, status: scan.status, notes: scan.notes }}
-        initialBrands={brands.map(serializeBrand)}
-      />
+      <Suspense fallback={<div className="card p-5 text-muted text-sm">Loading scan…</div>}>
+        <ScanClient
+          scan={{ id: scan.id, category: scan.category, status: scan.status, notes: scan.notes }}
+          initialBrands={brands.map(serializeBrand)}
+        />
+      </Suspense>
     </main>
   );
 }
