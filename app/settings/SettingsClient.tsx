@@ -88,6 +88,8 @@ export default function SettingsClient() {
         </table>
       </div>
 
+      <DiagnosticPanel />
+
       <div className="card p-5 flex items-center gap-3 flex-wrap">
         <button
           className="btn-ghost text-sm"
@@ -114,6 +116,89 @@ export default function SettingsClient() {
         Missing providers don't crash scans — they just leave that field empty and the lead
         score works with whatever signals are present.
       </p>
+    </div>
+  );
+}
+
+type Probe = {
+  name: string;
+  configured: boolean;
+  ok: boolean | null;
+  latency_ms?: number;
+  detail?: string;
+  error?: string;
+};
+
+function DiagnosticPanel() {
+  const [probes, setProbes] = useState<Probe[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setProbes(null);
+    try {
+      const r = await fetch('/api/settings/diagnose', { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`);
+      setProbes(d.probes ?? []);
+    } catch (e: any) {
+      setError(e?.message ?? 'failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+        <div>
+          <h2 className="font-semibold">Diagnose all integrations</h2>
+          <p className="text-xs text-muted">
+            Sends a real request to every configured provider and reports latency + result.
+            Confirms your keys actually work before running a scan.
+          </p>
+        </div>
+        <button className="btn-ghost text-sm" disabled={busy} onClick={run}>
+          {busy ? 'Running…' : 'Run diagnose'}
+        </button>
+      </div>
+      {error && <div className="text-red-400 text-xs">{error}</div>}
+      {probes && (
+        <table className="mt-3">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Status</th>
+              <th>Latency</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {probes.map((p) => (
+              <tr key={p.name}>
+                <td className="capitalize">{p.name}</td>
+                <td>
+                  {p.ok === true ? (
+                    <span className="pill text-emerald-300 border-emerald-700/50">ok</span>
+                  ) : p.ok === false ? (
+                    <span className="pill text-red-300 border-red-700/50">fail</span>
+                  ) : (
+                    <span className="pill text-muted">skipped</span>
+                  )}
+                </td>
+                <td className="text-muted">
+                  {p.latency_ms != null ? `${p.latency_ms} ms` : '—'}
+                </td>
+                <td className="text-xs text-muted">
+                  {p.error ? <span className="text-red-300">{p.error}</span> : p.detail ?? '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
