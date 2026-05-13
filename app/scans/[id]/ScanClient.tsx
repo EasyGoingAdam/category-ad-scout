@@ -181,6 +181,34 @@ export default function ScanClient({
     }
   }
 
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (
+      !confirm(
+        `Delete ${selected.size} brand(s) from this scan? Their drafts will also be removed. This can't be undone.`,
+      )
+    )
+      return;
+    setRunning('bulk');
+    setError(null);
+    try {
+      const r = await fetch(`/api/scan/${scan.id}/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_ids: Array.from(selected) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
+      setLog((l) => [...l, `Deleted ${data.deleted} brand(s).`]);
+      setSelected(new Set());
+      await refreshBrands();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRunning(null);
+    }
+  }
+
   async function bulkVerifyEmails() {
     if (selected.size === 0) return;
     setRunning('bulk');
@@ -389,6 +417,7 @@ export default function ScanClient({
           onReenrich={bulkReenrich}
           onVerifyEmails={bulkVerifyEmails}
           onSetStatus={bulkSetStatus}
+          onDelete={bulkDelete}
           onClear={() => setSelected(new Set())}
         />
       )}
@@ -586,6 +615,7 @@ function BulkBar({
   onReenrich,
   onVerifyEmails,
   onSetStatus,
+  onDelete,
   onClear,
 }: {
   count: number;
@@ -594,6 +624,7 @@ function BulkBar({
   onReenrich: () => void;
   onVerifyEmails: () => void;
   onSetStatus: (s: string | null) => void;
+  onDelete: () => void;
   onClear: () => void;
 }) {
   return (
@@ -623,6 +654,14 @@ function BulkBar({
           <option key={s} value={s}>{s}</option>
         ))}
       </select>
+      <button
+        className="btn-ghost text-red-300 border-red-900 hover:bg-red-950/30"
+        disabled={busy}
+        onClick={onDelete}
+        title="Delete selected brands from this scan (drafts cascade)"
+      >
+        Delete
+      </button>
       <button className="btn-ghost ml-auto" onClick={onClear}>
         clear selection
       </button>
