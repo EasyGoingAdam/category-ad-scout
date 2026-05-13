@@ -325,11 +325,16 @@ export default function ScanClient({
         </button>
         <a
           className="btn-ghost"
-          href={`/api/scan/${scan.id}/export.csv`}
+          href={
+            selected.size > 0
+              ? `/api/scan/${scan.id}/export.csv?ids=${Array.from(selected).join(',')}`
+              : `/api/scan/${scan.id}/export.csv`
+          }
           download
           aria-disabled={brands.length === 0}
+          title={selected.size > 0 ? `Export ${selected.size} selected` : 'Export all brands'}
         >
-          Export CSV
+          {selected.size > 0 ? `Export ${selected.size}` : 'Export CSV'}
         </a>
         {error && <div className="text-sm text-red-400 ml-auto">{error}</div>}
       </div>

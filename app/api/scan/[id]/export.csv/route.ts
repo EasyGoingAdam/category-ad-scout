@@ -31,7 +31,7 @@ const COLUMNS: Array<{ key: keyof BrandRecord | 'website'; header: string }> = [
   { key: 'last_checked', header: 'Last Checked' },
 ];
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const id = Number(params.id);
   if (!Number.isFinite(id)) {
     return NextResponse.json({ error: 'invalid scan id' }, { status: 400 });
@@ -41,10 +41,22 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     SELECT category FROM scans WHERE id = ${id}
   `;
   if (!scan) return NextResponse.json({ error: 'not found' }, { status: 404 });
-  const brands = await db<BrandRecord[]>`
-    SELECT * FROM brands WHERE scan_id = ${id}
-    ORDER BY COALESCE(lead_score, category_fit, 0) DESC, brand_name ASC
-  `;
+
+  // Optional ?ids=1,2,3 narrows the export to a specific selection.
+  const idsParam = req.nextUrl.searchParams.get('ids');
+  const ids = idsParam
+    ? idsParam.split(',').map((s) => Number(s.trim())).filter(Number.isFinite)
+    : null;
+
+  const brands = ids && ids.length > 0
+    ? await db<BrandRecord[]>`
+        SELECT * FROM brands WHERE scan_id = ${id} AND id IN ${db(ids)}
+        ORDER BY COALESCE(lead_score, category_fit, 0) DESC, brand_name ASC
+      `
+    : await db<BrandRecord[]>`
+        SELECT * FROM brands WHERE scan_id = ${id}
+        ORDER BY COALESCE(lead_score, category_fit, 0) DESC, brand_name ASC
+      `;
 
   const lines: string[] = [];
   lines.push(COLUMNS.map((c) => csvCell(c.header)).join(','));
