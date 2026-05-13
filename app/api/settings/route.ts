@@ -44,18 +44,22 @@ export async function GET() {
   let db: { ok: boolean; error?: string; counts?: { scans: number; brands: number; schedules: number } } = {
     ok: false,
   };
-  try {
-    const [c] = await sql()<
-      Array<{ scans: number; brands: number; schedules: number }>
-    >`
-      SELECT
-        (SELECT COUNT(*)::int FROM scans)     AS scans,
-        (SELECT COUNT(*)::int FROM brands)    AS brands,
-        (SELECT COUNT(*)::int FROM schedules) AS schedules
-    `;
-    db = { ok: true, counts: c };
-  } catch (e: any) {
-    db = { ok: false, error: e?.message ?? 'connection failed' };
+  if (!process.env.DATABASE_URL) {
+    db = { ok: false, error: 'DATABASE_URL not set' };
+  } else {
+    try {
+      const [c] = await sql()<
+        Array<{ scans: number; brands: number; schedules: number }>
+      >`
+        SELECT
+          (SELECT COUNT(*)::int FROM scans)     AS scans,
+          (SELECT COUNT(*)::int FROM brands)    AS brands,
+          (SELECT COUNT(*)::int FROM schedules) AS schedules
+      `;
+      db = { ok: true, counts: c };
+    } catch (e: any) {
+      db = { ok: false, error: e?.message ?? 'connection failed' };
+    }
   }
 
   return NextResponse.json({ integrations, db });

@@ -9,6 +9,24 @@ export const dynamic = 'force-dynamic';
 export default async function ScanDetail({ params }: { params: { id: string } }) {
   const id = Number(params.id);
   if (!Number.isFinite(id)) return notFound();
+
+  if (!process.env.DATABASE_URL) {
+    return (
+      <main className="space-y-4">
+        <div className="card p-5 border-amber-700/50">
+          <p className="text-sm text-amber-300 mb-1">Database unavailable</p>
+          <p className="text-xs text-muted">
+            DATABASE_URL is not set. Add it in Railway → Variables and redeploy.
+          </p>
+          <p className="text-xs text-muted mt-2">
+            Visit <Link className="text-accent" href="/settings">/settings</Link> to see which
+            integrations are configured.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   const db = sql();
   const [scan] = await db<
     Array<{
@@ -21,10 +39,13 @@ export default async function ScanDetail({ params }: { params: { id: string } })
   >`SELECT id, category, created_at, status, notes FROM scans WHERE id = ${id}`;
   if (!scan) return notFound();
   const brands = await db<BrandRecord[]>`
-    SELECT * FROM brands WHERE scan_id = ${id}
-    ORDER BY COALESCE(lead_score, category_fit, 0) DESC, brand_name ASC
+    SELECT b.*,
+           EXISTS(SELECT 1 FROM drafts d WHERE d.brand_id = b.id) AS has_drafts,
+           EXISTS(SELECT 1 FROM drafts d WHERE d.brand_id = b.id AND d.sent_at IS NOT NULL) AS has_sent_drafts
+    FROM brands b
+    WHERE b.scan_id = ${id}
+    ORDER BY COALESCE(b.lead_score, b.category_fit, 0) DESC, b.brand_name ASC
   `;
-  // postgres-js returns Date for timestamptz; serialize for the client component
   const safeScan = { ...scan, created_at: String(scan.created_at) };
   return (
     <main className="space-y-4">
@@ -59,6 +80,8 @@ function serializeBrand(b: BrandRecord): BrandRecord {
     ...b,
     last_checked: b.last_checked ? String(b.last_checked) : null,
     created_at: b.created_at ? String(b.created_at) : undefined,
+    user_updated_at: b.user_updated_at ? String(b.user_updated_at) : null,
+    email_verified_at: b.email_verified_at ? String(b.email_verified_at) : null,
     semrush_organic_traffic:
       b.semrush_organic_traffic != null ? Number(b.semrush_organic_traffic) : null,
     semrush_paid_traffic:
