@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { BrandRecord, BrandStatus } from '@/lib/types';
 
 const USER_STATUSES: Array<BrandStatus | 'Contacted' | 'Replied' | 'Closed' | ''> = [
@@ -34,7 +35,14 @@ export default function ScanClient({
   const [hasAdsOnly, setHasAdsOnly] = useState(false);
   const [hasEmailOnly, setHasEmailOnly] = useState(false);
   const [notDraftedOnly, setNotDraftedOnly] = useState(false);
-  const [expanded, setExpanded] = useState<number | null>(null);
+  const searchParams = useSearchParams();
+  const initialBrandId = (() => {
+    const raw = searchParams?.get('brand');
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  })();
+  const [expanded, setExpanded] = useState<number | null>(initialBrandId);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [scanStatus, setScanStatus] = useState<string>(scan.status);
 
@@ -45,6 +53,16 @@ export default function ScanClient({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // If URL has ?brand=X, scroll to that row once brands are loaded.
+  useEffect(() => {
+    if (initialBrandId == null) return;
+    const t = setTimeout(() => {
+      const el = document.getElementById(`brand-${initialBrandId}`);
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [initialBrandId]);
 
   // Live-poll while discovery is in progress so new brands appear in the table.
   useEffect(() => {
@@ -155,6 +173,32 @@ export default function ScanClient({
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
       setLog((l) => [...l, ...(data.log ?? []), `Re-enriched ${data.enriched}/${data.total}.`]);
+      await refreshBrands();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  async function bulkVerifyEmails() {
+    if (selected.size === 0) return;
+    setRunning('bulk');
+    setError(null);
+    setLog((l) => [...l, `Bulk-verifying emails for ${selected.size} brand(s)…`]);
+    try {
+      const r = await fetch(`/api/scan/${scan.id}/bulk-verify-emails`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_ids: Array.from(selected) }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
+      setLog((l) => [
+        ...l,
+        ...(data.log ?? []),
+        `Verified ${data.verified} email(s) · ${data.invalid} invalid`,
+      ]);
       await refreshBrands();
     } catch (e: any) {
       setError(e.message);
@@ -338,6 +382,7 @@ export default function ScanClient({
           statuses={USER_STATUSES}
           busy={running === 'bulk'}
           onReenrich={bulkReenrich}
+          onVerifyEmails={bulkVerifyEmails}
           onSetStatus={bulkSetStatus}
           onClear={() => setSelected(new Set())}
         />
@@ -534,6 +579,7 @@ function BulkBar({
   statuses,
   busy,
   onReenrich,
+  onVerifyEmails,
   onSetStatus,
   onClear,
 }: {
@@ -541,6 +587,7 @@ function BulkBar({
   statuses: string[];
   busy: boolean;
   onReenrich: () => void;
+  onVerifyEmails: () => void;
   onSetStatus: (s: string | null) => void;
   onClear: () => void;
 }) {
@@ -549,6 +596,9 @@ function BulkBar({
       <strong>{count} selected</strong>
       <button className="btn-ghost" disabled={busy} onClick={onReenrich}>
         {busy ? 'Re-enriching…' : 'Re-enrich selected'}
+      </button>
+      <button className="btn-ghost" disabled={busy} onClick={onVerifyEmails}>
+        {busy ? '…' : 'Verify emails'}
       </button>
       <select
         className="input"
@@ -696,7 +746,7 @@ function BrandTable({
             const effectiveStatus = b.user_status ?? b.status;
             return (
               <Fragment key={b.id}>
-                <tr className={isOpen ? 'bg-panel/40' : undefined}>
+                <tr id={`brand-${b.id}`} className={isOpen ? 'bg-panel/40' : undefined}>
                   <td>
                     <input
                       type="checkbox"
@@ -704,10 +754,18 @@ function BrandTable({
                       onChange={() => toggleSelected(b.id!)}
                     />
                   </td>
-                  <td>
+                  <td className="flex items-center gap-1">
                     <button
                       className="btn-ghost text-xs"
-                      onClick={() => setExpanded(isOpen ? null : (b.id ?? null))}
+                      onClick={() => {
+                        const nextExpanded = isOpen ? null : (b.id ?? null);
+                        setExpanded(nextExpanded);
+                        // Update URL so the panel is link-shareable
+                        const url = new URL(window.location.href);
+                        if (nextExpanded != null) url.searchParams.set('brand', String(nextExpanded));
+                        else url.searchParams.delete('brand');
+                        window.history.replaceState({}, '', url.toString());
+                      }}
                       aria-label={isOpen ? 'collapse' : 'expand'}
                     >
                       {isOpen ? '−' : '+'}
@@ -947,7 +1005,20 @@ function BrandDetail({
             <em>{raw.llm_fit.reason}</em>
           </div>
         )}
-        <h4 className="font-semibold mb-2">Operator</h4>
+        <div className="flex items-baseline justify-between gap-2 mb-2">
+          <h4 className="font-semibold">Operator</h4>
+          <button
+            className="btn-ghost text-xs"
+            title="Copy a shareable link to this brand"
+            onClick={() => {
+              const url = new URL(window.location.href);
+              url.searchParams.set('brand', String(b.id));
+              void navigator.clipboard.writeText(url.toString());
+            }}
+          >
+            🔗 share link
+          </button>
+        </div>
         <label className="text-xs text-muted block mb-1">Status override</label>
         <select
           className="input mb-3"
