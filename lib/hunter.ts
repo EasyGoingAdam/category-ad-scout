@@ -98,6 +98,55 @@ function scoreEmail(e: HunterEmail): number {
   return s;
 }
 
+export type HunterVerify = {
+  email: string;
+  status: 'valid' | 'accept_all' | 'webmail' | 'invalid' | 'disposable' | 'unknown';
+  score: number;
+  regexp?: boolean;
+  gibberish?: boolean;
+  disposable?: boolean;
+  webmail?: boolean;
+  mx_records?: boolean;
+  smtp_server?: boolean;
+  smtp_check?: boolean;
+  block?: boolean;
+  source: 'hunter' | 'unavailable';
+  raw?: unknown;
+};
+
+export async function hunterVerifyEmail(email: string): Promise<HunterVerify> {
+  if (!hasHunterKey()) {
+    return { email, status: 'unknown', score: 0, source: 'unavailable' };
+  }
+  const u = new URL('https://api.hunter.io/v2/email-verifier');
+  u.searchParams.set('email', email);
+  u.searchParams.set('api_key', process.env.HUNTER_API_KEY!);
+
+  const r = await fetch(u);
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    throw new Error(`Hunter verify ${r.status}: ${t.slice(0, 200)}`);
+  }
+  const j = await r.json();
+  const data = j?.data ?? {};
+  const status = String(data.status ?? data.result ?? 'unknown') as HunterVerify['status'];
+  return {
+    email,
+    status,
+    score: Number(data.score ?? 0),
+    regexp: !!data.regexp,
+    gibberish: !!data.gibberish,
+    disposable: !!data.disposable,
+    webmail: !!data.webmail,
+    mx_records: !!data.mx_records,
+    smtp_server: !!data.smtp_server,
+    smtp_check: !!data.smtp_check,
+    block: !!data.block,
+    source: 'hunter',
+    raw: data,
+  };
+}
+
 export function contactScore(best: HunterEmail | null): number {
   if (!best) return 0;
   let s = 30;

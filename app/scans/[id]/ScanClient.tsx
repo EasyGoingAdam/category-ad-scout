@@ -748,7 +748,7 @@ function BrandTable({
                     )}
                   </td>
                   <td>{b.shopify_detected ? 'yes' : '—'}</td>
-                  <td className="max-w-[180px]">
+                  <td className="max-w-[200px]">
                     {b.best_email ? (
                       <span className="flex items-center gap-1">
                         <span className="truncate" title={b.best_email}>
@@ -763,6 +763,14 @@ function BrandTable({
                         >
                           ⎘
                         </button>
+                        {b.email_verified_status && (
+                          <span
+                            className={`pill text-[10px] ${verifyTone(b.email_verified_status)}`}
+                            title={`Hunter verify: ${b.email_verified_status} · score ${b.email_verified_score ?? '—'}`}
+                          >
+                            {verifyShort(b.email_verified_status)}
+                          </span>
+                        )}
                       </span>
                     ) : (
                       '—'
@@ -1139,6 +1147,9 @@ function BrandDetail({
 
       <section>
         <h4 className="font-semibold mb-2">Hunter emails</h4>
+        {b.best_email && (
+          <VerifyButton brandId={b.id!} brand={b} />
+        )}
         {!hunterEmails || hunterEmails.length === 0 ? (
           <p className="text-muted">no emails returned</p>
         ) : (
@@ -1181,6 +1192,105 @@ function BrandDetail({
 function cell(v: number | null | undefined) {
   if (v == null) return '—';
   return v;
+}
+
+function VerifyButton({ brandId, brand }: { brandId: number; brand: BrandRecord }) {
+  const [busy, setBusy] = useState(false);
+  const [verify, setVerify] = useState<{
+    status: string;
+    score: number;
+    mx_records?: boolean;
+    smtp_check?: boolean;
+    webmail?: boolean;
+    disposable?: boolean;
+  } | null>(
+    brand.email_verified_status
+      ? {
+          status: brand.email_verified_status,
+          score: brand.email_verified_score ?? 0,
+        }
+      : null,
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch(`/api/brand/${brandId}/verify-email`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error ?? `HTTP ${r.status}`);
+      setVerify({
+        status: d.verify.status,
+        score: d.verify.score,
+        mx_records: d.verify.mx_records,
+        smtp_check: d.verify.smtp_check,
+        webmail: d.verify.webmail,
+        disposable: d.verify.disposable,
+      });
+    } catch (e: any) {
+      setError(e?.message ?? 'failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-3 text-xs">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button className="btn-ghost text-xs" disabled={busy} onClick={run}>
+          {busy ? 'Verifying…' : verify ? 'Re-verify' : 'Verify deliverability'}
+        </button>
+        {verify && (
+          <>
+            <span className={`pill ${verifyTone(verify.status)}`}>
+              {verify.status} · {verify.score}
+            </span>
+            {verify.mx_records === false && <span className="pill">no MX</span>}
+            {verify.smtp_check === false && <span className="pill">SMTP rejected</span>}
+            {verify.webmail && <span className="pill">webmail</span>}
+            {verify.disposable && (
+              <span className="pill text-red-300 border-red-700/50">disposable</span>
+            )}
+          </>
+        )}
+      </div>
+      {error && <div className="text-red-400 mt-1">{error}</div>}
+    </div>
+  );
+}
+
+function verifyTone(status: string): string {
+  switch (status) {
+    case 'valid':
+      return 'border-emerald-700/50 text-emerald-300';
+    case 'accept_all':
+      return 'border-sky-700/50 text-sky-300';
+    case 'webmail':
+      return 'border-amber-700/50 text-amber-300';
+    case 'invalid':
+    case 'disposable':
+      return 'border-red-700/50 text-red-300';
+    default:
+      return 'border-line text-muted';
+  }
+}
+
+function verifyShort(status: string): string {
+  switch (status) {
+    case 'valid':
+      return '✓';
+    case 'accept_all':
+      return 'accept-all';
+    case 'webmail':
+      return 'webmail';
+    case 'invalid':
+      return '✗ invalid';
+    case 'disposable':
+      return 'disposable';
+    default:
+      return '?';
+  }
 }
 
 function formatTimeAgo(iso: string): string {

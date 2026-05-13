@@ -89,6 +89,12 @@ ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_status TEXT;
 ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_notes TEXT;
 ALTER TABLE brands ADD COLUMN IF NOT EXISTS user_updated_at TIMESTAMPTZ;
 
+-- Email verification (v0.5).
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS email_verified_status TEXT;
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS email_verified_score INTEGER;
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+ALTER TABLE brands ADD COLUMN IF NOT EXISTS email_verified_raw TEXT;
+
 -- Outreach draft history (v0.3).
 CREATE TABLE IF NOT EXISTS drafts (
   id BIGSERIAL PRIMARY KEY,
