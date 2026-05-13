@@ -74,9 +74,16 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ seed: seed.trim() || undefined, count: 12 }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
-      setSuggestions(data.categories ?? []);
+      const data = await safeJson(r);
+      if (!r.ok) {
+        throw new Error(
+          data?.error ??
+            (r.status === 502 || r.status === 503
+              ? 'Server restarting — try again in a moment.'
+              : `HTTP ${r.status}`),
+        );
+      }
+      setSuggestions(data?.categories ?? []);
     } catch (e: any) {
       setError(e.message ?? 'Failed to brainstorm');
     } finally {
@@ -94,7 +101,7 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: cat.trim() }),
       });
-      const data = await r.json();
+      const data = await safeJson(r);
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
       window.location.href = `/scans/${data.scan_id}`;
     } catch (e: any) {
@@ -318,6 +325,18 @@ function CategoryCard({
       )}
     </div>
   );
+}
+
+// Parses a Response body that is *probably* JSON, but degrades gracefully
+// when the body is empty (transient deploys / 502s from the edge) or HTML.
+async function safeJson(r: Response): Promise<any> {
+  const text = await r.text().catch(() => '');
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text.slice(0, 200) };
+  }
 }
 
 function Score({ label, v }: { label: string; v: number }) {
