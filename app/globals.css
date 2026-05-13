@@ -3,12 +3,12 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html, body {
-  background: #0b0d10;
-  color: #e6e9ee;
+  background: #fafaf9;
+  color: #1c1917;
   font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", Inter, sans-serif;
 }
 
@@ -18,55 +18,95 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 .card {
-  background: #13161b;
-  border: 1px solid #1f242c;
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
   border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(28, 25, 23, 0.04);
 }
 
 .btn {
-  background: #ff7a45;
-  color: #0b0d10;
+  background: #ea580c;
+  color: #ffffff;
   font-weight: 600;
   padding: 10px 16px;
   border-radius: 8px;
   border: none;
 }
+.btn:hover { background: #c2410c; }
+
 .btn-ghost {
   background: transparent;
-  color: #e6e9ee;
-  border: 1px solid #1f242c;
+  color: #1c1917;
+  border: 1px solid #e7e5e4;
   padding: 8px 14px;
   border-radius: 8px;
   font-weight: 500;
 }
-.btn-ghost:hover { background: #13161b; }
+.btn-ghost:hover {
+  background: #fff7ed;
+  border-color: #ea580c;
+}
 
 .input {
   width: 100%;
-  background: #0b0d10;
-  border: 1px solid #1f242c;
-  color: #e6e9ee;
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
+  color: #1c1917;
   padding: 12px 14px;
   border-radius: 8px;
   font-size: 15px;
   outline: none;
 }
-.input:focus { border-color: #ff7a45; }
+.input:focus {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+}
 
 .pill {
   display: inline-block;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid #1f242c;
-  color: #aab2bd;
+  border: 1px solid #e7e5e4;
+  color: #78716c;
+  background: #ffffff;
 }
 
 table { border-collapse: collapse; width: 100%; }
 th, td {
   text-align: left;
   padding: 10px 12px;
-  border-bottom: 1px solid #1f242c;
+  border-bottom: 1px solid #e7e5e4;
   font-size: 13px;
 }
-th { color: #aab2bd; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+th {
+  color: #78716c;
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #fafaf9;
+}
+
+/* Light-theme overrides for the dark-tone Tailwind utility classes
+   I scattered through the UI. Keep semantic meaning, just adapt for
+   white background. */
+.text-emerald-300 { color: #059669 !important; }
+.text-amber-300   { color: #b45309 !important; }
+.text-red-300     { color: #b91c1c !important; }
+.text-sky-300     { color: #0369a1 !important; }
+.text-violet-300  { color: #6d28d9 !important; }
+
+.border-emerald-700\/50 { border-color: #6ee7b7 !important; }
+.border-amber-700\/50   { border-color: #fcd34d !important; }
+.border-red-700\/50     { border-color: #fca5a5 !important; }
+.border-sky-700\/50     { border-color: #7dd3fc !important; }
+.border-violet-700\/50  { border-color: #c4b5fd !important; }
+.border-red-900         { border-color: #fecaca !important; }
+
+.bg-panel\/30, .bg-panel\/40 {
+  background-color: #fafaf9 !important;
+}
+.bg-red-950\/30 {
+  background-color: #fef2f2 !important;
+}

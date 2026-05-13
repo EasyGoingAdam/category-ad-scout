@@ -5,11 +5,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: '#0b0d10',
-        panel: '#13161b',
-        line: '#1f242c',
-        muted: '#7a828d',
-        accent: '#ff7a45',
+        // Light theme palette.
+        bg: '#fafaf9',        // page background (warm off-white, stone-50)
+        panel: '#ffffff',     // card surface
+        line: '#e7e5e4',      // borders (stone-200)
+        ink: '#1c1917',       // primary text (stone-900)
+        muted: '#78716c',     // secondary text (stone-500)
+        accent: '#ea580c',    // brand orange (orange-600 — readable on white)
+        'accent-soft': '#fff7ed', // orange-50 — hover/highlight surfaces
       },
     },
   },
