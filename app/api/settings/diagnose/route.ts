@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-import { anthropic, MODELS } from '@/lib/anthropic';
+import { openai, MODELS } from '@/lib/openai';
 import { searchWeb, hasSearchProvider } from '@/lib/search';
 import { semrushDomainOverview, hasSemrushKey } from '@/lib/semrush';
 import { hunterDomainSearch, hasHunterKey } from '@/lib/hunter';
@@ -14,7 +14,7 @@ export const maxDuration = 90;
 type Probe = {
   name: string;
   configured: boolean;
-  ok: boolean | null; // null = not run because not configured
+  ok: boolean | null;
   latency_ms?: number;
   detail?: string;
   error?: string;
@@ -52,24 +52,21 @@ export async function POST() {
     }
   }
 
-  // 2. Anthropic — tiny round-trip to confirm key + reachability
-  if (!process.env.ANTHROPIC_API_KEY) {
-    probes.push({ name: 'anthropic', configured: false, ok: null });
+  // 2. OpenAI — tiny round-trip to confirm key + reachability
+  if (!process.env.OPENAI_API_KEY) {
+    probes.push({ name: 'openai', configured: false, ok: null });
   } else {
     try {
       const r = await timed(() =>
-        anthropic().messages.create({
+        openai().chat.completions.create({
           model: MODELS.fast,
           max_tokens: 8,
           messages: [{ role: 'user', content: 'reply with just OK' }],
         }),
       );
-      const text = r.value.content
-        .map((b) => (b.type === 'text' ? b.text : ''))
-        .join('')
-        .trim();
+      const text = r.value.choices[0]?.message?.content?.trim() ?? '';
       probes.push({
-        name: 'anthropic',
+        name: 'openai',
         configured: true,
         ok: true,
         latency_ms: r.ms,
@@ -77,7 +74,7 @@ export async function POST() {
       });
     } catch (e: any) {
       probes.push({
-        name: 'anthropic',
+        name: 'openai',
         configured: true,
         ok: false,
         error: e?.message ?? 'unknown',
@@ -85,7 +82,7 @@ export async function POST() {
     }
   }
 
-  // 3. Search provider — 1 real search to confirm the key works
+  // 3. Search provider
   if (!hasSearchProvider()) {
     probes.push({ name: 'search', configured: false, ok: null });
   } else {
@@ -108,7 +105,7 @@ export async function POST() {
     }
   }
 
-  // 4. SEMrush — domain_ranks query against a known site
+  // 4. SEMrush
   if (!hasSemrushKey()) {
     probes.push({ name: 'semrush', configured: false, ok: null });
   } else {
@@ -131,7 +128,7 @@ export async function POST() {
     }
   }
 
-  // 5. Hunter — domain-search for a known domain
+  // 5. Hunter
   if (!hasHunterKey()) {
     probes.push({ name: 'hunter', configured: false, ok: null });
   } else {
@@ -154,7 +151,7 @@ export async function POST() {
     }
   }
 
-  // 6. Meta cowork — webhook ping with a tiny payload
+  // 6. Meta cowork
   if (!hasMetaCoworkUrl()) {
     probes.push({ name: 'meta', configured: false, ok: null });
   } else {
@@ -185,7 +182,7 @@ export async function POST() {
     }
   }
 
-  // 7. Telegram — only when explicitly requested (don't spam the channel on every diagnose)
+  // 7. Telegram
   probes.push({
     name: 'telegram',
     configured: hasTelegram(),

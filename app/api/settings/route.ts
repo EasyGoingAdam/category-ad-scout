@@ -12,9 +12,9 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const integrations = {
     database: { configured: !!process.env.DATABASE_URL, vars: ['DATABASE_URL'] },
-    anthropic: {
-      configured: !!process.env.ANTHROPIC_API_KEY,
-      vars: ['ANTHROPIC_API_KEY'],
+    openai: {
+      configured: !!process.env.OPENAI_API_KEY,
+      vars: ['OPENAI_API_KEY'],
     },
     search: {
       configured: hasSearchProvider(),

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { draftOutreach } from './outreach';
 import type { BrandRecord } from './types';
 
-const original = process.env.ANTHROPIC_API_KEY;
+const original = process.env.OPENAI_API_KEY;
 afterEach(() => {
-  process.env.ANTHROPIC_API_KEY = original;
+  process.env.OPENAI_API_KEY = original;
+  vi.resetModules();
 });
 
 const sampleBrand: BrandRecord = {
@@ -23,24 +23,27 @@ const sampleBrand: BrandRecord = {
   status: 'New',
 };
 
-function mockAnthropic(response: { subject: string; body: string; notes?: string }) {
+function mockOpenAI(response: { subject: string; body: string; notes?: string }) {
   vi.resetModules();
-  vi.doMock('./anthropic', () => ({
-    anthropic: () => ({
-      messages: {
-        create: vi.fn(async () => ({
-          content: [{ type: 'text', text: JSON.stringify(response) }],
-        })),
+  vi.doMock('./openai', () => ({
+    openai: () => ({
+      chat: {
+        completions: {
+          create: vi.fn(async () => ({
+            choices: [{ message: { content: JSON.stringify(response) } }],
+          })),
+        },
       },
     }),
-    MODELS: { fast: 'haiku', smart: 'sonnet' },
+    MODELS: { fast: 'gpt-4o-mini', smart: 'gpt-4o' },
+    hasOpenAIKey: () => true,
   }));
 }
 
 describe('draftOutreach', () => {
-  it('returns subject + body parsed from Claude JSON output', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test';
-    mockAnthropic({
+  it('returns subject + body parsed from OpenAI JSON output', async () => {
+    process.env.OPENAI_API_KEY = 'test';
+    mockOpenAI({
       subject: 'Quick Amazon question',
       body: 'I noticed Native Pet runs 42 live ads with a 20% subscription offer — and pulls ~185k organic monthly. Curious whether you have an Amazon channel set up, or whether you treat it as out of scope. We run that exact channel end-to-end for DTC brands of your size and would value 15 min to compare notes. Open to it?',
       notes: 'leaned into the ad+traffic signals',
@@ -55,8 +58,8 @@ describe('draftOutreach', () => {
   });
 
   it('throws if subject or body is missing', async () => {
-    process.env.ANTHROPIC_API_KEY = 'test';
-    mockAnthropic({ subject: '', body: 'no subject' });
+    process.env.OPENAI_API_KEY = 'test';
+    mockOpenAI({ subject: '', body: 'no subject' });
     const { draftOutreach: draftFn } = await import('./outreach');
     await expect(
       draftFn(sampleBrand, { sender_pitch: 'pitch' }),

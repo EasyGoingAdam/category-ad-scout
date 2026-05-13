@@ -1,4 +1,4 @@
-import { anthropic, MODELS } from './anthropic';
+import { openai, MODELS } from './openai';
 
 export type RerankInput = {
   domain: string;
@@ -27,13 +27,12 @@ export async function rerankCategoryFit(
   category: string,
   items: RerankInput[],
 ): Promise<RerankOutput[]> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return items.map((i) => ({ domain: i.domain, fit_score: 0, reason: 'no anthropic key' }));
+  if (!process.env.OPENAI_API_KEY) {
+    return items.map((i) => ({ domain: i.domain, fit_score: 0, reason: 'no openai key' }));
   }
   if (items.length === 0) return [];
 
-  // Batch into one prompt; Haiku handles 60+ items easily.
-  const client = anthropic();
+  const client = openai();
   const prompt = `Target category: "${category}"
 
 For each brand below, score category fit 0-100 and give a ≤120-char reason.
@@ -53,22 +52,23 @@ ${items
 
 Output JSON only.`;
 
-  const res = await client.messages.create({
+  const res = await client.chat.completions.create({
     model: MODELS.fast,
+    response_format: { type: 'json_object' },
     max_tokens: Math.min(8000, items.length * 60 + 200),
-    system: SYSTEM,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: prompt },
+    ],
   });
 
-  const text = res.content
-    .map((b) => (b.type === 'text' ? b.text : ''))
-    .join('')
-    .trim();
-  const json = extractJson(text);
-  const parsed = JSON.parse(json);
+  const text = res.choices[0]?.message?.content?.trim() ?? '';
+  if (!text) {
+    return items.map((i) => ({ domain: i.domain, fit_score: 0, reason: 'empty model response' }));
+  }
+  const parsed = JSON.parse(text);
   const arr: any[] = Array.isArray(parsed?.results) ? parsed.results : [];
 
-  // Align results by domain; fall back to position if domain key is missing.
   const out: RerankOutput[] = items.map((it, i) => {
     const byDomain = arr.find((r) => typeof r?.domain === 'string' && r.domain === it.domain);
     const r = byDomain ?? arr[i];
@@ -85,13 +85,4 @@ Output JSON only.`;
 function clamp(n: number, lo: number, hi: number): number {
   if (!Number.isFinite(n)) return lo;
   return Math.min(hi, Math.max(lo, n));
-}
-
-function extractJson(s: string): string {
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) return fenced[1].trim();
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) return s.slice(first, last + 1);
-  return s;
 }

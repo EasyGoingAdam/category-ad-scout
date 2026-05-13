@@ -1,4 +1,4 @@
-import { anthropic, MODELS } from './anthropic';
+import { openai, MODELS } from './openai';
 import type { BrandRecord } from './types';
 
 export type DraftRequest = {
@@ -32,7 +32,7 @@ export async function draftOutreach(
   brand: BrandRecord,
   req: DraftRequest,
 ): Promise<Draft> {
-  const client = anthropic();
+  const client = openai();
   const signals = signalsBlock(brand);
   const recipient =
     [req.recipient_name, req.recipient_position && `(${req.recipient_position})`]
@@ -59,19 +59,19 @@ ${signals}
 
 Draft the email now. Return JSON only.`;
 
-  const res = await client.messages.create({
+  const res = await client.chat.completions.create({
     model: MODELS.smart,
+    response_format: { type: 'json_object' },
     max_tokens: 800,
-    system: SYSTEM,
-    messages: [{ role: 'user', content: prompt }],
+    messages: [
+      { role: 'system', content: SYSTEM },
+      { role: 'user', content: prompt },
+    ],
   });
 
-  const text = res.content
-    .map((b) => (b.type === 'text' ? b.text : ''))
-    .join('')
-    .trim();
-  const json = extractJson(text);
-  const parsed = JSON.parse(json);
+  const text = res.choices[0]?.message?.content?.trim() ?? '';
+  if (!text) throw new Error('OpenAI returned an empty response');
+  const parsed = JSON.parse(text);
   const subject = typeof parsed?.subject === 'string' ? parsed.subject.trim() : '';
   const body = typeof parsed?.body === 'string' ? parsed.body.trim() : '';
   if (!subject || !body) throw new Error('outreach draft missing subject or body');
@@ -110,15 +110,6 @@ function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
   return String(Math.round(n));
-}
-
-function extractJson(s: string): string {
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) return fenced[1].trim();
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) return s.slice(first, last + 1);
-  return s;
 }
 
 export const DEFAULT_SENDER_PITCH =

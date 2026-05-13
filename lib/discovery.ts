@@ -106,9 +106,9 @@ export async function discoverBrands(opts: {
 
   // Phase 3b: LLM re-rank category fit (uses the title/description as evidence).
   // Falls back to the heuristic score on any failure.
-  if (process.env.ANTHROPIC_API_KEY && out.length > 0) {
+  if (process.env.OPENAI_API_KEY && out.length > 0) {
     try {
-      log(`Re-ranking ${out.length} candidates with Claude…`);
+      log(`Re-ranking ${out.length} candidates with OpenAI…`);
       const llm = await rerankCategoryFit(
         category,
         out.map((c) => ({

@@ -38,7 +38,7 @@ export default function Home() {
         const blocking: Array<{ name: string; vars: string }> = [];
         const req: Array<[string, string]> = [
           ['database', 'Database'],
-          ['anthropic', 'Anthropic (for brainstorming)'],
+          ['openai', 'OpenAI (for brainstorming + drafting)'],
           ['search', 'Search provider (for discovery)'],
         ];
         for (const [k, label] of req) {

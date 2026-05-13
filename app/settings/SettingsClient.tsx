@@ -15,7 +15,7 @@ type Settings = {
 
 const FEATURE_NOTES: Record<string, { title: string; gates: string }> = {
   database: { title: 'Database (Supabase Postgres)', gates: 'Required to boot' },
-  anthropic: { title: 'Anthropic (Claude)', gates: 'Category brainstorming' },
+  openai: { title: 'OpenAI', gates: 'Category brainstorming · LLM re-rank · outreach drafting' },
   search: { title: 'Search provider', gates: 'Brand discovery (Phase 2)' },
   semrush: { title: 'SEMrush', gates: 'Traffic enrichment + traffic score' },
   hunter: { title: 'Hunter.io', gates: 'Email discovery + contact score' },

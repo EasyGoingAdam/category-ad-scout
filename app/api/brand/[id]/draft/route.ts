@@ -39,9 +39,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const id = Number(params.id);
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'invalid id' }, { status: 400 });
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
-      { error: 'ANTHROPIC_API_KEY required for outreach drafting' },
+      { error: 'OPENAI_API_KEY required for outreach drafting' },
       { status: 400 },
     );
   }

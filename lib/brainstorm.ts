@@ -1,4 +1,4 @@
-import { anthropic, MODELS } from './anthropic';
+import { openai, MODELS } from './openai';
 import type { CategorySuggestion } from './types';
 
 const SYSTEM = `You are an Amazon ecommerce strategist. You generate product categories that meet ALL of these criteria:
@@ -35,12 +35,13 @@ export async function brainstormCategories(opts: {
     ? `Bias suggestions toward this theme/seed: "${opts.seed}". Categories should be adjacent to or compatible with the seed but still meet all criteria.`
     : 'Range across health/wellness, pet, home, baby, outdoor, food/beverage, beauty, fitness, kitchen.';
 
-  const client = anthropic();
-  const res = await client.messages.create({
+  const client = openai();
+  const res = await client.chat.completions.create({
     model: MODELS.smart,
+    response_format: { type: 'json_object' },
     max_tokens: 2000,
-    system: SYSTEM,
     messages: [
+      { role: 'system', content: SYSTEM },
       {
         role: 'user',
         content: `Generate ${count} product categories.
@@ -54,26 +55,13 @@ Output JSON only.`,
     ],
   });
 
-  const text = res.content
-    .map((b) => (b.type === 'text' ? b.text : ''))
-    .join('')
-    .trim();
-
-  const json = extractJson(text);
-  const parsed = JSON.parse(json);
+  const text = res.choices[0]?.message?.content?.trim() ?? '';
+  if (!text) throw new Error('OpenAI returned an empty response');
+  const parsed = JSON.parse(text);
   const list: CategorySuggestion[] = Array.isArray(parsed?.categories)
     ? parsed.categories
     : [];
   return list.filter(
     (c) => c && typeof c.category === 'string' && c.category.trim().length > 0,
   );
-}
-
-function extractJson(s: string): string {
-  const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) return fenced[1].trim();
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first >= 0 && last > first) return s.slice(first, last + 1);
-  return s;
 }
